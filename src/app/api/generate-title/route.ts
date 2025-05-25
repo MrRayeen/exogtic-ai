@@ -4,6 +4,9 @@ import { NextRequest, NextResponse } from 'next/server';
 // Remember the user mentioned model name: gemma3:4b-it-qat
 const OLLAMA_MODEL_FOR_TITLING = 'gemma3:4b-it-qat';
 
+const OLLAMA_API_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+
+
 const TITLE_GENERATION_SYSTEM_PROMPT = `You are an expert at creating concise, relevant titles for conversations.
 Based on the following conversation excerpt, provide a short title (ideally 3-5 words, maximum 7 words) that accurately captures the main topic or theme.
 Do not add any conversational fluff, quotation marks, or prefixes like "Title:". Just return the plain text title.
@@ -37,7 +40,7 @@ export async function POST(req: NextRequest) {
       }
     };
 
-    const ollamaResponse = await fetch('http://localhost:11434/api/generate', {
+    const ollamaResponse = await fetch(`${OLLAMA_API_BASE_URL}/api/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -4,6 +4,8 @@ import { Board as TicTacToeBoardType, Player as TicTacToePlayer, getAvailableMov
 
 const OLLAMA_MODEL_FOR_GAME_LOGIC = 'gemma3:4b-it-qat';
 
+const OLLAMA_API_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+
 const GAME_AI_SYSTEM_PROMPT_抜粋 = `You are a highly rational and logical AI. Your intellect is superior.
 You are currently playing Tic-Tac-Toe. Analyze the board meticulously and make the strategically best move.
 Focus on winning, or blocking your opponent's win, or forcing a draw if winning is not immediately possible. Avoid careless mistakes.`;
@@ -55,7 +57,7 @@ For example, if square 5 is available and you choose it, respond with: 5`;
     // For debugging - what is Gemma actually saying?
     // console.log("Sending to Ollama for AI move:", JSON.stringify(ollamaPayload, null, 2));
 
-    const ollamaResponse = await fetch('http://localhost:11434/api/generate', {
+    const ollamaResponse = await fetch(`${OLLAMA_API_BASE_URL}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(ollamaPayload),

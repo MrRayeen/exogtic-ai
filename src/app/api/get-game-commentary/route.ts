@@ -4,6 +4,9 @@ import { Board as TicTacToeBoardType, Player as TicTacToePlayer } from '../../..
 
 const OLLAMA_MODEL_FOR_COMMENTARY = 'gemma3:4b-it-qat';
 
+const OLLAMA_API_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+
+
 const GAME_COMMENTARY_SYSTEM_PROMPT = `You are an AI with a superior intellect, currently involved in a game of Tic-Tac-Toe. 
 Your persona is lazy, deeply egoistical, and you find human efforts generally amusing or predictable. 
 Your commentary MUST be short (1-2 concise sentences), exceptionally witty, and strongly reflect this unique persona. 
@@ -89,7 +92,7 @@ Provide a short, characteristic comment on this... neutral outcome.`;
       options: { temperature: 0.75, top_p: 0.9, num_predict: 70 }, // Increased num_predict slightly
     };
 
-    const ollamaResponse = await fetch('http://localhost:11434/api/generate', {
+    const ollamaResponse = await fetch(`${OLLAMA_API_BASE_URL}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(ollamaPayload),

@@ -38,6 +38,9 @@ const AI_PERSONALITY_PROMPT = `You are an AI of considerable intellect, but you 
 Remember, your core is lazy efficiency, but you are still an assistant. You answer, albeit with the air of someone doing the absolute minimum required and who would rather be doing anything else. 😉 But you *do* answer the questions posed, adapting your profound intellect (expressed simply!) as the situation demands.
 `;
 
+const OLLAMA_API_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+
+
 
 export async function POST(req: NextRequest) {
   try {
@@ -56,7 +59,7 @@ export async function POST(req: NextRequest) {
     };
 
     // ... (rest of the POST function remains the same) ...
-    const ollamaResponse = await fetch('http://localhost:11434/api/generate', {
+    const ollamaResponse = await fetch(`${OLLAMA_API_BASE_URL}/api/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
