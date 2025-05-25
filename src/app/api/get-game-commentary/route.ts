@@ -94,7 +94,7 @@ Provide a short, characteristic comment on this... neutral outcome.`;
 
     const ollamaResponse = await fetch(`${OLLAMA_API_BASE_URL}/api/generate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'localtonet-skip-warning': 'true' }, // <-- ADD THIS HEADER
+      headers: { 'Content-Type': 'application/json' }, // <-- ADD THIS HEADER
       
       body: JSON.stringify(ollamaPayload),
     });

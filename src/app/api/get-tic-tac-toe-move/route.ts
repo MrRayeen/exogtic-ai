@@ -51,7 +51,7 @@ For example, if square 5 is available and you choose it, respond with: 5`;
 
 
     const ollamaResponse = await fetch(`${OLLAMA_API_BASE_URL}/api/generate`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'localtonet-skip-warning': 'true' }, body: JSON.stringify(ollamaPayload),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ollamaPayload),
     });
 
     console.log(`[GET-TIC-TAC-TOE-MOVE API] Ollama response status: ${ollamaResponse.status}`);

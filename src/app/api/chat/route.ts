@@ -63,7 +63,6 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'localtonet-skip-warning': 'true' // <-- ADD THIS HEADER
       },
       body: JSON.stringify(ollamaPayload),
     });
