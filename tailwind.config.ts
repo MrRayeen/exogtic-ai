@@ -15,6 +15,7 @@ const config: Config = {
           "system-ui",
           "sans-serif",
         ],
+        audiowide: ["var(--font-audiowide)", "cursive"], // Added Audiowide font
       },
       animation: {
         fadeInEnhanced: "fadeInEnhanced 0.5s ease-out forwards", // Updated name

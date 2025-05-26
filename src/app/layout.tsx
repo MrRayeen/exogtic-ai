@@ -1,19 +1,27 @@
 // === File: app/layout.tsx ===
 import type { Metadata } from "next";
-import { Figtree } from "next/font/google"; // Import Figtree
+import { Figtree, Audiowide } from "next/font/google"; // Audiowide is already imported
 import "./globals.css";
 
-// Configure Figtree font
+// Configure Figtree font (your existing code)
 const figtree = Figtree({
   subsets: ["latin"],
-  display: "swap", // Ensures text remains visible during font loading
-  variable: "--font-figtree", // Optional: if you want to use it as a CSS variable
-  weight: ['300', '400', '500', '600', '700', '800', '900'] // Specify weights you'll use
+  display: "swap",
+  variable: "--font-figtree",
+  weight: ["300", "400", "500", "600", "700", "800", "900"],
+});
+
+// Configure Audiowide font (your existing code)
+const audiowide = Audiowide({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-audiowide", // This variable will be used
+  weight: ["400"], // Audiowide typically only has the 400 weight
 });
 
 export const metadata: Metadata = {
-  title: "Exogtic AI Chat ✨", // You can customize this
-  description: "Chat with your personalized AI assistant", // And this
+  title: "Exogtic AI Chat ✨",
+  description: "Chat with your personalized AI assistant",
 };
 
 export default function RootLayout({
@@ -22,7 +30,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${figtree.variable} font-sans antialiased`}> {/* Apply Figtree variable and Tailwind's sans class */}
+    // Add audiowide.variable here
+    <html
+      lang="en"
+      className={`${figtree.variable} ${audiowide.variable} font-sans antialiased`}
+    >
       <body>{children}</body>
     </html>
   );

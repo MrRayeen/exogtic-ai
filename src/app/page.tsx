@@ -1,7 +1,6 @@
-// === File: app/page.tsx ===
 "use client";
 
-import { useState, useEffect, FormEvent, useRef } from "react";
+import { useState, useEffect, FormEvent, useRef, ChangeEvent } from "react";
 import { v4 as uuidv4 } from "uuid"; // Ensure uuid is installed: npm install uuid @types/uuid
 import {
   Board as TicTacToeBoardType,
@@ -12,7 +11,6 @@ import {
   isBoardFull,
   makeMove,
   getAvailableMoves,
-  // HUMAN_PLAYER as DEFAULT_HUMAN_PLAYER, AI_PLAYER as DEFAULT_AI_PLAYER // Constants can be defined in-component if preferred
 } from "../lib/ticTacToe"; // Make sure this path is correct (e.g., src/lib/ticTacToe)
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -70,26 +68,29 @@ export default function ChatPage() {
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [input, setInput] = useState<string>("");
-  const [isLoading, setIsLoading] = useState<boolean>(false); // For main chat AI response
-  const [isTitling, setIsTitling] = useState<{ [chatId: string]: boolean }>({}); // For AI title generation
-  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true); // Sidebar visibility
+  const [showGameDropdown, setShowGameDropdown] = useState<boolean>(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isTitling, setIsTitling] = useState<{ [chatId: string]: boolean }>({});
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
   const [selectedImagePreview, setSelectedImagePreview] = useState<
     string | null
-  >(null); // For showing a preview
+  >(null);
 
-  // Tic-Tac-Toe Game State
   const [ticTacToeState, setTicTacToeState] =
     useState<TicTacToeGameState | null>(null);
-  const [isAiThinkingMove, setIsAiThinkingMove] = useState<boolean>(false); // For TTT AI move
+  const [isAiThinkingMove, setIsAiThinkingMove] = useState<boolean>(false);
   const [isFetchingCommentary, setIsFetchingCommentary] =
-    useState<boolean>(false); // For TTT AI commentary
+    useState<boolean>(false);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  // inputRef was for a general input, textareaRef is now primary for text.
+  // If inputRef is still needed for other purposes, it can be kept.
+  // For focusing, textareaRef will be used for the main text input.
 
   // --- 3. useEffect Hooks ---
-  // Load from localStorage on mount
   useEffect(() => {
     try {
       const storedSessions = localStorage.getItem("chatSessions");
@@ -112,10 +113,10 @@ export default function ChatPage() {
           );
           setActiveChatId(sortedSessions[0].id);
         } else {
-          handleNewChat(true); // Create one if none exist
+          handleNewChat(true);
         }
       } else {
-        handleNewChat(true); // Create one if nothing in storage
+        handleNewChat(true);
       }
     } catch (error) {
       console.error("Error loading from localStorage:", error);
@@ -124,42 +125,28 @@ export default function ChatPage() {
       handleNewChat(true);
     }
     if (typeof window !== "undefined") {
-      setIsSidebarOpen(window.innerWidth >= 768); // 'md' breakpoint
+      setIsSidebarOpen(window.innerWidth >= 768);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Save sessions to localStorage
   useEffect(() => {
     if (chatSessions.length > 0 || localStorage.getItem("chatSessions")) {
-      // Save even if it becomes empty, to clear it
       localStorage.setItem("chatSessions", JSON.stringify(chatSessions));
     }
   }, [chatSessions]);
 
-  // Save activeChatId to localStorage
   useEffect(() => {
     if (activeChatId) {
       localStorage.setItem("activeChatId", activeChatId);
     } else if (chatSessions.length === 0) {
-      // Clear if no chats left
       localStorage.removeItem("activeChatId");
     }
   }, [activeChatId, chatSessions.length]);
 
-  // Auto-scroll chat
   useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop =
-        chatContainerRef.current.scrollHeight;
-    }
-  }, [chatSessions, activeChatId]); // Also trigger on activeChatId change
-
-  // Focus input
-  useEffect(() => {
-    if (activeChatId && inputRef.current && !ticTacToeState) {
-      // Don't refocus if game is active and input might be disabled
-      inputRef.current.focus();
+    if (activeChatId && textareaRef.current && !ticTacToeState) {
+      textareaRef.current.focus();
     }
   }, [activeChatId, ticTacToeState]);
 
@@ -208,15 +195,15 @@ export default function ChatPage() {
     };
     setChatSessions((prevSessions) => [newChat, ...prevSessions]);
     if (setActive) setActiveChatId(newChatId);
-    if (inputRef.current) inputRef.current.focus();
-    setTicTacToeState(null); // Ensure game mode is exited
+    if (textareaRef.current) textareaRef.current.focus();
+    setTicTacToeState(null);
     return newChatId;
   };
 
   const handleSelectChat = (chatId: string) => {
     setActiveChatId(chatId);
-    setTicTacToeState(null); // Exit game mode when switching chats
-    if (inputRef.current) inputRef.current.focus();
+    setTicTacToeState(null);
+    if (textareaRef.current) textareaRef.current.focus();
     if (typeof window !== "undefined" && window.innerWidth < 768)
       setIsSidebarOpen(false);
   };
@@ -224,7 +211,8 @@ export default function ChatPage() {
   const handleDeleteChat = (chatIdToDelete: string) => {
     const sessionToDelete = chatSessions.find((s) => s.id === chatIdToDelete);
     if (!sessionToDelete) return;
-    const confirmDelete = window.confirm(
+    // Replace window.confirm with a custom modal in a real app
+    const confirmDelete = confirm(
       `Are you sure you want to delete "${sessionToDelete.title}"?`
     );
     if (!confirmDelete) return;
@@ -245,8 +233,8 @@ export default function ChatPage() {
           )[0].id
         );
       } else {
-        setActiveChatId(null); // No chats left
-        handleNewChat(); // Create a new one
+        setActiveChatId(null);
+        handleNewChat();
       }
     }
   };
@@ -255,7 +243,50 @@ export default function ChatPage() {
     chatId: string,
     messagesForTitle: Message[]
   ) => {
-    /* ... (as provided before) ... */
+    if (isTitling[chatId]) return;
+    setIsTitling((prev) => ({ ...prev, [chatId]: true }));
+    try {
+      // Simulating API call for title generation
+      // Replace with your actual API call to /api/generate-title or similar
+      const userMessagesContent = messagesForTitle
+        .filter((m) => m.role === "user")
+        .map((m) => m.content)
+        .join(" ");
+      const assistantMessagesContent = messagesForTitle
+        .filter((m) => m.role === "assistant")
+        .map((m) => m.content)
+        .join(" ");
+
+      // Example prompt for title generation
+      const titlePrompt = `Based on this conversation, suggest a short, concise title (max 5 words):
+User: ${userMessagesContent.substring(0, 100)}...
+Assistant: ${assistantMessagesContent.substring(0, 100)}...
+Title:`;
+
+      // Simulate API response
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // Simulate network delay
+      const generatedTitle =
+        `${messagesForTitle[0].content.substring(0, 15)}` ||
+        "Generated Title";
+
+      setChatSessions((prevSessions) =>
+        prevSessions.map((session) =>
+          session.id === chatId
+            ? {
+                ...session,
+                title: generatedTitle.replace(/^"|"$/g, ""), // Remove quotes if any
+                titleGenerated: true,
+                lastModifiedAt: new Date().toISOString(),
+              }
+            : session
+        )
+      );
+    } catch (error) {
+      console.error("Error generating title:", error);
+      // Optionally, set title to a fallback or leave as is
+    } finally {
+      setIsTitling((prev) => ({ ...prev, [chatId]: false }));
+    }
   };
 
   // --- Tic-Tac-Toe Specific Functions ---
@@ -308,10 +339,8 @@ export default function ChatPage() {
 
   const initiateTicTacToe = () => {
     if (!activeChatId) {
-      // Ensure there's an active chat or create one
       const newId = handleNewChat(true);
-      if (!newId) return; // Should not happen
-      // Brief delay to allow state to update before setting title
+      if (!newId) return;
       setTimeout(() => {
         setChatSessions((prevSessions) =>
           prevSessions.map((session) =>
@@ -353,7 +382,8 @@ export default function ChatPage() {
       winner: null,
       isHumanFirst: null,
     });
-    setIsSidebarOpen(false);
+    setIsSidebarOpen(false); // Close sidebar when game starts
+    setShowGameDropdown(false); // Close dropdown if open
   };
 
   const handleSymbolChoice = (symbol: TicTacToePlayer) => {
@@ -479,7 +509,6 @@ export default function ChatPage() {
   };
 
   const aiMakeMove = async (currentState: TicTacToeGameState) => {
-    // currentState is now guaranteed by call site
     if (
       currentState.status !== "playing" ||
       currentState.currentPlayer !== currentState.aiSymbol ||
@@ -521,7 +550,6 @@ export default function ChatPage() {
         console.error("AI Move API error:", await response.text());
       }
       if (aiMoveIndex === null) {
-        // Fallback
         addSystemMessage(
           `(My advanced calculations are... on a break. Random move it is!)`,
           "system_info"
@@ -583,7 +611,7 @@ export default function ChatPage() {
         }
       } else {
         addSystemMessage(
-          "Hmm, no valid moves for me? A flaw in the universe, surely. 😒",
+          "Hmm, no valid moves for me? A flaw in the universe, surely. �",
           "system_info"
         );
       }
@@ -620,7 +648,6 @@ export default function ChatPage() {
     const trimmedInput = input.trim();
     if ((!trimmedInput && !selectedImageFile) || !activeChatId || isLoading)
       return;
-    // Handle special commands
 
     if (trimmedInput.toLowerCase() === "/play tic-tac-toe") {
       initiateTicTacToe();
@@ -628,7 +655,6 @@ export default function ChatPage() {
       return;
     }
     if (ticTacToeState && ticTacToeState.status !== "ended") {
-      // Allow commentary during game
       addMessageToActiveChat({
         id: uuidv4(),
         role: "user",
@@ -636,36 +662,22 @@ export default function ChatPage() {
         isGameMessage: true,
         messageType: "user_action",
       });
-      // Optionally, get an AI comment on the user's chat message during the game
-      // For now, just logs it. AI will respond with game moves or its own commentary.
       setInput("");
       return;
     }
     let imageBase64Data: string | null = null;
-    if (selectedImageFile) {
-      // Convert the selected file to a base64 string for the API
-      // Note: FileReader is async. For simplicity here, we'll assume selectedImagePreview already holds it
-      // In a more robust implementation, you'd properly await the FileReader result here
-      // or store the base64 in state when the file is selected.
-      // Let's assume selectedImagePreview (which is a data URL: "data:image/jpeg;base64,...") is what we need to process.
-      if (selectedImagePreview) {
-        // Extract just the base64 part from the data URL
-        imageBase64Data = selectedImagePreview.split(",")[1];
-      }
+    if (selectedImageFile && selectedImagePreview) {
+      imageBase64Data = selectedImagePreview.split(",")[1];
     }
 
-    // Regular chat logic
     const userMessage: Message = {
       id: uuidv4(),
       role: "user",
       content: trimmedInput,
-      ...(imageBase64Data && { images: [imageBase64Data] }),
+      ...(imageBase64Data && { images: [imageBase64Data] }), // Send actual base64 data
     };
 
-    // Optimistically update UI with user message AND get the latest messages for the API call
     let messagesForApi: Message[] = [];
-    let sessionForTitlingCheck: ChatSession | undefined;
-
     setChatSessions((prevSessions) => {
       const updatedSessions = prevSessions.map((session) => {
         if (session.id === activeChatId) {
@@ -675,8 +687,7 @@ export default function ChatPage() {
             messages: updatedMessages,
             lastModifiedAt: new Date().toISOString(),
           };
-          sessionForTitlingCheck = updatedSession; // Capture for titling logic
-          messagesForApi = updatedMessages; // Capture for API call
+          messagesForApi = updatedMessages;
           return updatedSession;
         }
         return session;
@@ -684,47 +695,51 @@ export default function ChatPage() {
       return updatedSessions;
     });
 
-    // Clear input and selected image
     setInput("");
     setSelectedImageFile(null);
     setSelectedImagePreview(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
 
     setIsLoading(true);
-    let finalAssistantResponseContent = ""; // To store the full response for potential use (like titling)
+    let finalAssistantResponseContent = "";
     const assistantMessageId = uuidv4();
 
-    // Add placeholder for assistant's message
-    // Ensure addMessageToActiveChat is defined correctly and updates chatSessions
     addMessageToActiveChat({
       id: assistantMessageId,
       role: "assistant",
-      content: "", // Start with empty content
+      content: "",
     });
 
     try {
-      // Ensure messagesForApi is populated. If setChatSessions hasn't updated state yet for this render,
-      // re-find the active session and construct messagesForApi.
-      // However, by structuring it as above, messagesForApi should be set from the updated session.
-      // A failsafe:
       if (messagesForApi.length === 0) {
         const currentActiveChat = chatSessions.find(
           (s) => s.id === activeChatId
         );
-        if (currentActiveChat) {
-          // This would be the state *before* the latest user message was added by setChatSessions
-          messagesForApi = [...currentActiveChat.messages, userMessage]; // So, add it manually if needed
-        } else {
-          messagesForApi = [userMessage]; // Should not happen if activeChatId is valid
-        }
+        messagesForApi = currentActiveChat
+          ? [...currentActiveChat.messages, userMessage]
+          : [userMessage];
       }
+
+      // Prepare messages for API, ensuring images are correctly formatted if present in the latest user message
+      const messagesForOllama = messagesForApi
+        .map((msg) => {
+          if (msg.id === userMessage.id && msg.images && msg.images[0]) {
+            return {
+              role: msg.role,
+              content: msg.content,
+              images: msg.images, // API expects array of base64 strings
+            };
+          }
+          return { role: msg.role, content: msg.content };
+        })
+        .slice(-10);
 
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: messagesForApi.slice(-10), // Send last 10 messages for context
-          model: OLLAMA_MODEL_NAME, // Ensure MAIN_OLLAMA_MODEL_NAME is defined
+          messages: messagesForOllama, // Use the processed messages
+          model: OLLAMA_MODEL_NAME,
         }),
       });
 
@@ -736,7 +751,6 @@ export default function ChatPage() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantResponseAccumulator = "";
-
       let buffer = "";
       while (true) {
         const { done, value } = await reader.read();
@@ -749,13 +763,12 @@ export default function ChatPage() {
           if (line) {
             try {
               const parsedChunk = JSON.parse(line);
-              // --- KEY CHANGE: Parsing response from Ollama's /api/chat stream format ---
               if (
                 parsedChunk.message &&
                 typeof parsedChunk.message.content === "string"
               ) {
                 assistantResponseAccumulator += parsedChunk.message.content;
-                finalAssistantResponseContent = assistantResponseAccumulator; // Keep track of full response
+                finalAssistantResponseContent = assistantResponseAccumulator;
 
                 setChatSessions((prev) =>
                   prev.map((s) =>
@@ -776,15 +789,8 @@ export default function ChatPage() {
                   )
                 );
               }
-              // The 'done' field in each chunk from /api/chat indicates if that particular part is done.
-              // The outer while loop's 'done' from reader.read() handles the overall stream end.
-              // if (parsedChunk.done) { /* Can act on per-chunk done if needed */ }
-              // --- END OF KEY CHANGE ---
             } catch (error) {
               // console.error("Error parsing JSON line from stream:", line, error);
-              // It's possible to receive non-JSON data or incomplete JSON lines sometimes,
-              // especially at the very end of a stream or if there's an issue.
-              // For now, we'll silently ignore parsing errors for individual lines to keep the stream going.
             }
           }
           boundary = buffer.indexOf("\n");
@@ -795,8 +801,7 @@ export default function ChatPage() {
       const errMsg = `😥 Oops! Smth went wrong: ${
         error instanceof Error ? error.message : String(error)
       }`;
-      finalAssistantResponseContent = errMsg; // Capture error for potential titling context
-      // Update the placeholder message with the error, or add a new error message
+      finalAssistantResponseContent = errMsg;
       setChatSessions((prev) =>
         prev.map((s) =>
           s.id === activeChatId
@@ -804,7 +809,7 @@ export default function ChatPage() {
                 ...s,
                 messages: s.messages.map((msg) =>
                   msg.id === assistantMessageId
-                    ? { ...msg, content: errMsg } // Update placeholder
+                    ? { ...msg, content: errMsg }
                     : msg
                 ),
               }
@@ -813,40 +818,31 @@ export default function ChatPage() {
       );
     } finally {
       setIsLoading(false);
-      // DIAGNOSTIC: Temporarily comment out auto-focus to test mobile input issue
-      // if (inputRef.current) inputRef.current.focus();
-
-      // Title Generation Logic (check sessionForTitlingCheck or re-find session)
-      const finalCurrentChat = chatSessions.find((s) => s.id === activeChatId); // Get latest state
+      // Title Generation Logic
+      const finalCurrentChat = chatSessions.find((s) => s.id === activeChatId);
       if (finalCurrentChat && activeChatId && !ticTacToeState) {
         if (
           !finalCurrentChat.titleGenerated &&
-          finalCurrentChat.title.startsWith("New Chat") // Or your default new chat title prefix
+          finalCurrentChat.title.startsWith("New Chat")
         ) {
           const userMessagesInChat = finalCurrentChat.messages.filter(
             (m) => m.role === "user"
           );
-          // Trigger title generation after the first full exchange (User1, AI1, User2, AI2)
-          // which means 2 user messages and typically 2 AI messages (total 4 messages, or when user message count is 2)
-          // The AI's response to the 2nd user message is finalAssistantResponseContent
           if (
-            userMessagesInChat.length === 2 &&
+            userMessagesInChat.length === 2 && // Or any other condition, e.g., 1 user message
             finalAssistantResponseContent
           ) {
-            // Ensure you have the latest messages including the AI's full response
             const messagesForTitle = [...finalCurrentChat.messages];
-            // If the last message isn't the AI's full response, update it or add it
             const lastMsg = messagesForTitle[messagesForTitle.length - 1];
             if (
               lastMsg &&
               lastMsg.id === assistantMessageId &&
               lastMsg.role === "assistant"
             ) {
-              lastMsg.content = finalAssistantResponseContent; // Ensure it has the complete response
+              lastMsg.content = finalAssistantResponseContent;
             } else if (finalAssistantResponseContent) {
-              // This case should ideally not be hit if placeholder logic is correct
               messagesForTitle.push({
-                id: uuidv4(),
+                id: uuidv4(), // Or assistantMessageId if it makes sense
                 role: "assistant",
                 content: finalAssistantResponseContent,
               });
@@ -868,12 +864,17 @@ export default function ChatPage() {
       new Date(a.lastModifiedAt).getTime()
   );
 
-  // --- Tic-Tac-Toe Game UI Component ---
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop =
+        chatContainerRef.current.scrollHeight;
+    }
+  }, [currentMessages]); // Depends on currentMessages of active chat
+
   const TicTacToeGameUI = () => {
     if (!ticTacToeState) return null;
-
-    const neonColorX = "text-cyan-400"; // Neon Blue/Cyan for X
-    const neonColorO = "text-pink-500"; // Neon Pink for O
+    const neonColorX = "text-cyan-400";
+    const neonColorO = "text-pink-500";
     const neonGridColor = "border-purple-500/50";
     const neonCellHoverBg = "hover:bg-purple-500/20";
 
@@ -896,19 +897,20 @@ export default function ChatPage() {
               onClick={() => handleSymbolChoice("X")}
               className={`px-6 py-3 rounded-lg font-bold text-3xl ${neonColorX} bg-gray-800 hover:bg-gray-700 shadow-md hover:shadow-cyan-500/50 transition-all`}
             >
-              X
+              {" "}
+              X{" "}
             </button>
             <button
               onClick={() => handleSymbolChoice("O")}
               className={`px-6 py-3 rounded-lg font-bold text-3xl ${neonColorO} bg-gray-800 hover:bg-gray-700 shadow-md hover:shadow-pink-500/50 transition-all`}
             >
-              O
+              {" "}
+              O{" "}
             </button>
           </div>
         </div>
       );
     }
-
     if (ticTacToeState.status === "choosing_first_player") {
       return (
         <div className="flex flex-col items-center justify-center p-4 space-y-4">
@@ -932,7 +934,6 @@ export default function ChatPage() {
         </div>
       );
     }
-
     if (
       ticTacToeState.status === "playing" ||
       ticTacToeState.status === "human_won" ||
@@ -953,24 +954,24 @@ export default function ChatPage() {
                   ticTacToeState.status !== "playing" ||
                   ticTacToeState.currentPlayer !== ticTacToeState.humanSymbol
                 }
-                className={`w-16 h-16 md:w-20 md:h-20 lg:w-24 lg:h-24 flex items-center justify-center text-4xl md:text-5xl font-bold 
-                                        bg-gray-800/50 rounded-sm transition-all duration-150 ease-in-out
-                                        ${
-                                          value === null &&
-                                          ticTacToeState.status === "playing" &&
-                                          ticTacToeState.currentPlayer ===
-                                            ticTacToeState.humanSymbol
-                                            ? `${neonCellHoverBg} cursor-pointer`
-                                            : "cursor-not-allowed"
-                                        }
-                                        ${getSymbolStyle(value)}
-                                        /* Neon cell borders (subtle) */
-                                        border border-purple-600/30 hover:border-purple-500/70`}
+                className={`w-16 h-16 md:w-20 md:h-20 lg:w-24 lg:h-24 flex items-center justify-center text-4xl md:text-5xl font-bold bg-gray-800/50 rounded-sm transition-all duration-150 ease-in-out
+                           ${
+                             value === null &&
+                             ticTacToeState.status === "playing" &&
+                             ticTacToeState.currentPlayer ===
+                               ticTacToeState.humanSymbol
+                               ? `${neonCellHoverBg} cursor-pointer`
+                               : "cursor-not-allowed"
+                           }
+                           ${getSymbolStyle(
+                             value
+                           )} border border-purple-600/30 hover:border-purple-500/70`}
                 aria-label={`Square ${index + 1}${
                   value ? `, marked ${value}` : ", empty"
                 }`}
               >
-                {value}
+                {" "}
+                {value}{" "}
               </button>
             ))}
           </div>
@@ -1017,7 +1018,8 @@ export default function ChatPage() {
                     ticTacToeState.currentPlayer
                   )}`}
                 >
-                  {ticTacToeState.currentPlayer}
+                  {" "}
+                  {ticTacToeState.currentPlayer}{" "}
                 </span>
                 {ticTacToeState.currentPlayer === ticTacToeState.humanSymbol
                   ? " (Your move, try not to disappoint. 😒)"
@@ -1027,187 +1029,443 @@ export default function ChatPage() {
         </div>
       );
     }
-    return null; // Should not happen if status is managed correctly
+    return null;
   };
 
-  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       const file = event.target.files[0];
+      const allowedTypes = [
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "image/gif",
+      ];
+      if (!allowedTypes.includes(file.type)) {
+        // Use custom modal instead of alert
+        console.warn(
+          "Invalid file type. Please select a PNG, JPEG, WEBP, or GIF."
+        );
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        // 5MB limit
+        // Use custom modal instead of alert
+        console.warn(
+          "Image is too large. Please select an image smaller than 5MB."
+        );
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
       setSelectedImageFile(file);
-
-      // Create a preview
       const reader = new FileReader();
       reader.onloadend = () => {
-        setSelectedImagePreview(reader.result as string); // This is a base64 data URL for preview
+        setSelectedImagePreview(reader.result as string);
       };
-      reader.readAsDataURL(file); // Reads the file as a data URL (base64)
+      reader.readAsDataURL(file);
     } else {
       setSelectedImageFile(null);
       setSelectedImagePreview(null);
     }
   };
 
-  // Helper to trigger the hidden file input
   const fileInputRef = useRef<HTMLInputElement>(null);
   const triggerImageUpload = () => {
     fileInputRef.current?.click();
   };
 
-  // Helper to remove selected image
   const removeSelectedImage = () => {
     setSelectedImageFile(null);
     setSelectedImagePreview(null);
-    if (fileInputRef.current) fileInputRef.current.value = ""; // Clear the file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   };
-  // --- Main Return JSX ---
-  // --- Main Return JSX with ReactMarkdown integration ---
+
+  const handleInputChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(event.target.value);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      let scrollHeight = textareaRef.current.scrollHeight;
+      const maxHeight = 120; // Approx 5 lines for sm text
+      if (scrollHeight > maxHeight) {
+        textareaRef.current.style.height = `${maxHeight}px`;
+        textareaRef.current.style.overflowY = "auto";
+      } else {
+        textareaRef.current.style.height = `${scrollHeight}px`;
+        textareaRef.current.style.overflowY = "hidden";
+      }
+    }
+  };
+
+  const handleTextareaKeyDown = (
+    event: React.KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      handleSubmit(event as any); // Cast event type if handleSubmit relies on form event specifics
+    }
+  };
+
+  // Helper function to determine the group key for a session for sidebar display
+  const getSessionGroupKeyForDisplay = (
+    sessionDate: Date,
+    now: Date
+  ): string => {
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const sevenDaysAgoDate = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - 6
+    ); // Date 7 days ago (inclusive of today)
+
+    const sessionDayStart = new Date(
+      sessionDate.getFullYear(),
+      sessionDate.getMonth(),
+      sessionDate.getDate()
+    );
+
+    if (
+      sessionDayStart.getTime() >= sevenDaysAgoDate.getTime() &&
+      sessionDayStart.getTime() <= today.getTime()
+    ) {
+      return "7 Days";
+    } else {
+      // Format as YYYY-MM for older chats, e.g., "2025-03"
+      return `${sessionDate.getFullYear()}-${String(
+        sessionDate.getMonth() + 1
+      ).padStart(2, "0")}`;
+    }
+  };
+
+  // Function to group sessions for sidebar display
+  const groupSessionsForSidebar = (
+    sessions: ChatSession[]
+  ): { groupTitle: string; sessions: ChatSession[] }[] => {
+    if (!sessions || sessions.length === 0) return [];
+
+    const now = new Date();
+    const grouped: Record<string, ChatSession[]> = {};
+
+    // Sessions are already sorted by lastModifiedAt descending by `sortedChatSessions`
+    sessions.forEach((session) => {
+      const sessionDate = new Date(session.lastModifiedAt);
+      const key = getSessionGroupKeyForDisplay(sessionDate, now);
+      if (!grouped[key]) {
+        grouped[key] = [];
+      }
+      grouped[key].push(session); // Sessions within a group will maintain their pre-sorted order
+    });
+
+    const orderedGroupKeys = Object.keys(grouped).sort((a, b) => {
+      if (a === "7 Days") return -1;
+      if (b === "7 Days") return 1;
+      return b.localeCompare(a); // Sort "YYYY-MM" keys reverse chronologically
+    });
+
+    return orderedGroupKeys.map((key) => ({
+      groupTitle: key,
+      sessions: grouped[key],
+    }));
+  };
+
+  const groupedSessionsForDisplay = groupSessionsForSidebar(sortedChatSessions);
+
   return (
-    <div className="flex h-screen text-slate-200 font-sans relative overflow-hidden">
+    <div className="flex h-screen text-slate-200 font-sofia relative overflow-hidden antialiased">
       <div className="absolute inset-0 z-0 animated-gradient"></div>
 
-      {!ticTacToeState && (
-        <button
-          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="md:hidden fixed top-2 sm:top-4 left-2 sm:left-4 z-30 p-2 bg-gray-800/80 backdrop-blur-md rounded-md text-slate-200"
-          aria-label="Toggle sidebar"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={1.5}
-            stroke="currentColor"
-            className="w-6 h-6"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
-            />
-          </svg>
-        </button>
-      )}
-
+      {/* === UPDATED SIDEBAR SECTION === */}
       {!ticTacToeState && (
         <div
-          className={`relative z-20 flex flex-col bg-gray-900/60 backdrop-blur-lg border-r border-gray-700/50 transition-all duration-300 ease-in-out ${
-            isSidebarOpen
-              ? "w-80 sm:w-96 p-2 sm:p-4 opacity-100 pointer-events-auto"
-              : "w-0 p-0 opacity-0 pointer-events-none"
-          } md:w-80 lg:w-96 md:p-4 md:opacity-100 md:pointer-events-auto`}
+          className={`fixed inset-y-0 left-0 z-40 flex flex-col space-y-6 bg-gray-900/90 backdrop-blur-lg border-r border-gray-700/60 shadow-2xl
+                     transition-transform duration-300 ease-in-out transform ${
+                       isSidebarOpen
+                         ? "translate-x-0 w-72 sm:w-80 p-3" // Adjusted padding
+                         : "-translate-x-full w-72 max-w-[300px] sm:w-80 p-3"
+                     } 
+                     md:relative md:translate-x-0 md:w-80 lg:w-96 md:p-4`} // Adjusted padding for md
         >
-          <>
+          {/* Mobile close button - keep it for usability on small screens */}
+          <div className="flex items-center justify-end mb-2 md:hidden">
             <button
-              onClick={() => {
-                handleNewChat();
-                if (typeof window !== "undefined" && window.innerWidth < 768)
-                  setIsSidebarOpen(false);
-              }}
-              className="flex-shrink-0 w-full mb-3 p-2 sm:p-3 bg-purple-600 hover:bg-purple-700 rounded-xl text-white font-semibold text-sm shadow-md transition-all active:scale-95 hover:shadow-lg hover:shadow-purple-500/40 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 focus:ring-offset-gray-900 flex items-center justify-center space-x-2"
+              onClick={() => setIsSidebarOpen(false)}
+              className="p-1 text-slate-400 hover:text-slate-200"
+              aria-label="Close sidebar"
             >
-              {" "}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
                 viewBox="0 0 24 24"
-                strokeWidth={1.5}
+                strokeWidth={2}
                 stroke="currentColor"
                 className="w-5 h-5"
               >
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  d="M12 4.5v15m7.5-7.5h-15"
+                  d="M6 18L18 6M6 6l12 12"
                 />
-              </svg>{" "}
-              <span>New Chat</span>{" "}
+              </svg>
             </button>
-            <div className="flex-grow overflow-y-auto space-y-1.5 sm:space-y-2 pr-0.5 sm:pr-1 custom-scrollbar">
-              {sortedChatSessions.map((session) => (
-                <div
-                  key={session.id}
-                  onClick={() => handleSelectChat(session.id)}
-                  className={`group p-2 sm:p-3 rounded-xl cursor-pointer transition-all duration-200 ease-in-out transform hover:scale-[1.02] ${
-                    activeChatId === session.id
-                      ? "bg-purple-700/80 ring-2 ring-purple-500/70 scale-[1.02] shadow-lg shadow-purple-500/30"
-                      : "bg-gray-800/70 hover:bg-gray-750/90"
-                  }`}
-                >
-                  <div className="flex justify-between items-center">
-                    {" "}
-                    <span
-                      className={`text-xs sm:text-sm font-medium truncate text-slate-100 group-hover:text-white ${
-                        isTitling[session.id] ? "italic text-gray-400" : ""
-                      }`}
-                    >
-                      {isTitling[session.id]
-                        ? "Generating title..."
-                        : session.title}
-                    </span>{" "}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteChat(session.id);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md hover:bg-red-500/30 text-red-400 hover:text-red-300"
-                      aria-label="Delete chat"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth={1.5}
-                        stroke="currentColor"
-                        className="w-4 h-4"
+          </div>
+          <div className="w-full flex items-center gap-2">
+            <svg
+              version="1.0"
+              xmlns="http://www.w3.org/2000/svg"
+              width="50.000000pt"
+              height="50.000000pt"
+              viewBox="0 0 360.000000 360.000000"
+              preserveAspectRatio="xMidYMid meet"
+            >
+              <g
+                transform="translate(0.000000,360.000000) scale(0.100000,-0.100000)"
+                fill="#e2e8f0"
+                stroke="none"
+              >
+                <path
+                  d="M1644 3343 c4 -54 9 -118 11 -143 3 -35 1 -31 -10 20 -8 36 -14 88
+-15 115 -1 76 -8 95 -37 95 -23 0 -25 -3 -18 -32 12 -62 28 -709 17 -720 -7
+-7 -11 87 -14 299 -4 254 -8 320 -23 376 -9 37 -23 67 -29 67 -63 0 -360 -122
+-372 -153 -5 -13 16 -336 32 -492 4 -40 3 -57 -4 -50 -9 9 -25 162 -48 443 -4
+45 -9 82 -11 82 -3 0 -31 -21 -64 -46 -58 -46 -59 -48 -59 -98 0 -28 4 -89 10
+-135 5 -46 12 -142 14 -215 l6 -131 -25 170 c-13 94 -24 205 -25 248 0 42 -4
+77 -8 77 -15 0 -109 -123 -145 -190 -20 -36 -48 -96 -63 -135 -22 -59 -25 -80
+-20 -134 5 -56 12 -74 57 -140 50 -75 51 -77 47 -139 -4 -60 -11 -74 -43 -85
+-6 -2 -2 -62 13 -163 30 -215 27 -221 -13 -22 -19 93 -37 172 -40 178 -3 5
+-13 10 -21 10 -27 0 -91 39 -112 67 -36 50 -43 22 -40 -173 l3 -179 65 -42
+c36 -23 73 -50 82 -59 24 -24 57 -114 64 -178 6 -49 4 -57 -19 -80 -14 -14
+-36 -26 -48 -26 -11 0 -48 23 -81 50 -50 42 -88 62 -88 47 0 -21 73 -287 88
+-320 18 -41 28 -48 130 -101 l111 -56 -4 102 c-4 101 -4 101 6 33 22 -156 17
+-146 88 -175 57 -23 64 -29 66 -55 1 -17 5 -38 9 -47 7 -16 2 -18 -33 -18 -53
+0 -62 -20 -27 -61 31 -37 32 -39 51 -204 18 -148 41 -245 90 -381 34 -93 104
+-238 112 -231 2 2 -3 35 -11 74 -27 128 -39 291 -34 479 4 155 7 188 21 202
+15 14 19 15 32 1 19 -19 40 -130 55 -289 10 -103 16 -132 36 -162 18 -29 21
+-38 10 -38 -8 0 -17 -4 -20 -9 -9 -14 143 -451 156 -451 2 0 4 94 4 209 2 174
+5 214 19 241 15 29 20 32 48 27 124 -23 162 -27 237 -27 47 0 116 7 155 15 92
+20 92 20 111 -16 12 -25 17 -76 21 -241 7 -242 -3 -246 99 42 64 182 67 193
+50 206 -17 12 -17 14 2 41 13 19 22 53 26 103 21 229 48 360 75 360 29 0 36
+-37 39 -230 4 -199 -5 -331 -33 -464 -8 -38 -13 -72 -10 -74 8 -9 86 161 125
+275 41 116 71 266 85 413 8 79 15 102 48 137 29 32 16 53 -32 53 -40 0 -40 1
+-30 27 5 14 8 35 7 46 -2 16 9 25 61 47 76 30 75 28 91 193 7 65 14 116 16
+114 3 -2 0 -60 -5 -128 -5 -68 -7 -126 -5 -128 7 -7 203 91 218 109 17 19 49
+118 76 230 11 47 22 95 26 108 10 35 -15 27 -83 -28 -34 -27 -71 -50 -83 -50
+-11 0 -33 12 -47 26 -23 23 -25 31 -19 79 7 62 41 157 65 180 9 9 45 35 81 58
+l65 42 3 179 c3 198 -3 221 -43 170 -21 -26 -62 -51 -116 -67 -11 -4 -24 -46
+-47 -159 -17 -84 -33 -164 -35 -178 l-4 -25 -2 25 c0 14 8 81 19 150 25 161
+25 174 -5 204 -21 21 -25 35 -25 80 0 48 5 62 50 128 83 124 80 200 -16 388
+-40 78 -137 210 -154 210 -4 0 -10 -57 -14 -127 -4 -71 -15 -182 -26 -248
+l-19 -120 5 125 c4 110 13 221 29 357 4 40 3 42 -58 92 -34 28 -65 51 -68 51
+-4 0 -9 -42 -13 -92 -12 -168 -37 -422 -41 -427 -9 -9 -5 117 11 317 9 111 13
+209 10 217 -12 33 -305 155 -370 155 -7 0 -21 -32 -31 -72 -15 -60 -20 -128
+-24 -383 -5 -216 -9 -298 -15 -270 -9 38 8 616 21 698 5 34 3 37 -20 37 -21 0
+-25 -5 -31 -46 -3 -26 -6 -65 -7 -88 -1 -23 -5 -52 -10 -66 -5 -16 -7 16 -3
+86 6 134 21 124 -180 124 l-138 0 6 -97z m303 -175 c-3 -7 -5 -2 -5 12 0 14 2
+19 5 13 2 -7 2 -19 0 -25z m-249 -1118 c0 -85 -3 -166 -7 -180 -11 -36 -21
+328 -20 664 l2 291 13 -310 c6 -170 12 -380 12 -465z m226 30 c-7 -225 -9
+-238 -17 -165 -6 52 -6 194 2 410 6 182 12 364 14 405 1 41 3 -33 5 -165 2
+-132 0 -350 -4 -485z m-320 -78 c-13 -26 -21 160 -14 328 l5 145 8 -228 c5
+-125 5 -235 1 -245z m406 83 c-5 -87 -7 -57 -7 140 0 225 1 236 7 110 4 -77 4
+-190 0 -250z m537 23 c-3 -8 -6 -5 -6 6 -1 11 2 17 5 13 3 -3 4 -12 1 -19z
+m-115 -166 c-4 -39 -7 -72 -4 -72 2 0 34 18 70 39 60 35 103 47 155 42 23 -2
+23 -56 -3 -152 -60 -228 -89 -319 -107 -345 -11 -15 -49 -44 -84 -64 l-64 -36
+-10 -64 -10 -65 -3 58 c-3 63 -13 74 -55 58 -25 -10 -26 -14 -30 -93 l-3 -83
+-2 87 c-1 48 -5 89 -9 91 -5 3 -23 8 -40 12 l-33 7 -1 -79 c-1 -43 -4 -116 -8
+-163 l-6 -85 -7 65 c-4 36 -3 110 2 165 5 55 6 102 4 105 -3 3 -35 25 -72 50
+-36 25 -65 48 -64 53 1 4 2 30 2 59 0 50 2 54 58 108 31 30 109 90 173 132
+l116 77 12 89 c6 48 11 100 11 114 0 13 3 28 8 32 11 12 14 -62 4 -142z
+m-1252 112 c0 -15 5 -67 12 -116 l12 -89 115 -77 c64 -41 142 -101 173 -132
+56 -54 58 -58 58 -108 0 -29 1 -55 2 -59 1 -5 -29 -29 -67 -55 -55 -37 -70
+-52 -68 -70 8 -118 11 -338 4 -316 -5 15 -12 95 -16 178 -5 101 -11 150 -19
+149 -6 -1 -22 -4 -36 -8 -24 -6 -25 -11 -31 -96 l-5 -90 -2 86 -2 87 -31 6
+c-17 3 -35 3 -40 0 -5 -3 -10 -31 -10 -62 l-1 -57 -12 65 -11 64 -64 36 c-35
+20 -72 49 -84 64 -17 24 -55 145 -113 366 -8 30 -14 71 -14 92 l0 38 53 0 c35
+0 63 -7 87 -21 19 -12 50 -30 69 -42 l34 -21 -7 107 c-4 71 -3 107 4 107 5 0
+10 -12 10 -26z m-333 -156 c-3 -7 -5 -2 -5 12 0 14 2 19 5 13 2 -7 2 -19 0
+-25z m1910 -15 c-3 -10 -5 -2 -5 17 0 19 2 27 5 18 2 -10 2 -26 0 -35z m-1900
+-65 c-3 -7 -5 -2 -5 12 0 14 2 19 5 13 2 -7 2 -19 0 -25z m1890 -5 c-3 -10 -5
+-4 -5 12 0 17 2 24 5 18 2 -7 2 -21 0 -30z m-1868 -157 c2 -66 -6 -35 -12 49
+-4 60 -3 69 3 35 5 -25 9 -63 9 -84z m1856 39 c-4 -42 -10 -74 -12 -71 -3 2
+-2 39 2 81 4 42 10 74 12 71 3 -2 2 -39 -2 -81z m-1848 -182 c-3 -10 -5 -2 -5
+17 0 19 2 27 5 18 2 -10 2 -26 0 -35z m973 -134 c9 -4 48 -98 88 -210 80 -221
+79 -216 28 -298 l-26 -41 -42 21 c-56 29 -160 29 -216 0 l-40 -20 -15 22 c-8
+12 -24 41 -35 64 l-22 42 20 63 c11 35 44 128 74 208 51 138 55 146 87 157 33
+11 68 8 99 -8z m307 -656 c-3 -10 -5 -4 -5 12 0 17 2 24 5 18 2 -7 2 -21 0
+-30z m-730 5 c-3 -8 -6 -5 -6 6 -1 11 2 17 5 13 3 -3 4 -12 1 -19z"
+                />
+              </g>
+            </svg>
+            <h1 className="text-4xl font-audiowide font-bold text-slate-200 tracking-widest pointer-events-none">
+              exogtic
+            </h1>
+          </div>
+
+          {/* New Chat Button - Styled like the image */}
+          <button
+            onClick={() => {
+              handleNewChat();
+              if (typeof window !== "undefined" && window.innerWidth < 768)
+                setIsSidebarOpen(false);
+            }}
+            className="mb-3 max-w-[150px] py-2 px-3 bg-slate-700 new-chat-btn rounded-xl text-white font-medium text-sm shadow-md transition-colors duration-200 ease-in-out active:scale-[0.98] flex items-center justify-center space-x-2 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 focus:ring-offset-gray-900"
+          >
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 28 28"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M9.10999 27C8.92999 27 8.76001 26.96 8.60001 26.9C8.43001 26.83 8.29 26.74 8.16 26.61C8.03 26.49 7.94 26.3499 7.87 26.1899C7.79999 26.0299 7.76001 25.8599 7.76001 25.6899L7.73001 23.04C7.34001 22.98 6.95001 22.8799 6.57001 22.7599C6.19001 22.6299 5.83001 22.48 5.48001 22.29C5.13001 22.1 4.79999 21.88 4.48999 21.63C4.17999 21.39 3.89 21.1199 3.63 20.82C3.37 20.52 3.13999 20.21 2.92999 19.87C2.72999 19.53 2.56001 19.18 2.42001 18.82C2.28001 18.45 2.17001 18.07 2.10001 17.69C2.03001 17.3 2 16.92 2 16.53V9.46995C2 9.03995 2.04 8.61995 2.12 8.19995C2.21 7.77995 2.34 7.36995 2.5 6.96995C2.67 6.57995 2.88 6.19995 3.12 5.84995C3.36 5.48995 3.64001 5.15995 3.95001 4.85995C4.26001 4.55995 4.59999 4.28995 4.95999 4.04995C5.32999 3.80995 5.70999 3.60995 6.10999 3.44995C6.51999 3.27995 6.94 3.15995 7.37 3.07995C7.79999 2.98995 8.23001 2.94995 8.67001 2.94995H13.3C13.46 2.94995 13.61 2.97995 13.76 3.03995C13.9 3.09995 14.03 3.17995 14.14 3.28995C14.25 3.39995 14.33 3.51995 14.39 3.65995C14.45 3.79995 14.48 3.94995 14.48 4.09995C14.48 4.25995 14.45 4.39995 14.39 4.54995C14.33 4.68995 14.25 4.80995 14.14 4.91995C14.03 5.02995 13.9 5.10995 13.76 5.16995C13.61 5.22995 13.46 5.25995 13.3 5.25995H8.67001C8.38001 5.25995 8.09999 5.27995 7.82999 5.33995C7.54999 5.38995 7.27999 5.46995 7.01999 5.57995C6.75999 5.67995 6.50999 5.80995 6.26999 5.96995C6.03999 6.11995 5.82 6.29995 5.62 6.48995C5.42 6.68995 5.23999 6.89995 5.07999 7.12995C4.92999 7.35995 4.78999 7.59995 4.67999 7.85995C4.57999 8.10995 4.49 8.37995 4.44 8.64995C4.38 8.91995 4.35999 9.18995 4.35999 9.46995V16.53C4.35999 16.81 4.38 17.08 4.44 17.36C4.5 17.63 4.58 17.9 4.69 18.16C4.8 18.42 4.93 18.67 5.09 18.9C5.25 19.13 5.43001 19.3499 5.64001 19.5499C5.84001 19.75 6.05999 19.92 6.29999 20.08C6.53999 20.24 6.79 20.37 7.06 20.47C7.32 20.58 7.6 20.66 7.88 20.72C8.16001 20.77 8.44001 20.7999 8.73001 20.7999C8.91001 20.7999 9.08 20.83 9.25 20.9C9.41 20.97 9.55999 21.0599 9.67999 21.18C9.80999 21.3099 9.91001 21.45 9.98001 21.61C10.05 21.77 10.08 21.94 10.09 22.11L10.1 23.74L13.08 21.61C13.84 21.07 14.69 20.7999 15.63 20.7999H19.32C19.61 20.7999 19.89 20.77 20.16 20.72C20.44 20.67 20.71 20.59 20.97 20.4799C21.23 20.3699 21.48 20.24 21.72 20.09C21.95 19.94 22.17 19.76 22.37 19.57C22.57 19.3699 22.75 19.16 22.91 18.93C23.07 18.7 23.2 18.46 23.31 18.2C23.41 17.95 23.5 17.68 23.55 17.41C23.61 17.14 23.63 16.87 23.63 16.59V12.94C23.63 12.79 23.66 12.64 23.72 12.5C23.78 12.36 23.87 12.23 23.98 12.13C24.09 12.02 24.22 11.93 24.36 11.88C24.51 11.82 24.66 11.79 24.82 11.79C24.97 11.79 25.12 11.82 25.27 11.88C25.41 11.93 25.54 12.02 25.65 12.13C25.76 12.23 25.85 12.36 25.91 12.5C25.97 12.64 26 12.79 26 12.94V16.59C26 17.02 25.95 17.44 25.87 17.86C25.78 18.28 25.66 18.69 25.49 19.08C25.32 19.48 25.11 19.8499 24.87 20.2099C24.63 20.57 24.35 20.9 24.04 21.2C23.73 21.5 23.39 21.7699 23.03 22.0099C22.67 22.2499 22.28 22.45 21.88 22.61C21.47 22.77 21.06 22.9 20.63 22.9799C20.2 23.07 19.76 23.11 19.32 23.11H16.4C15.47 23.11 14.62 23.3799 13.86 23.9199L9.91 26.74C9.67 26.91 9.39999 27 9.10999 27Z"
+                fill="currentColor"
+              ></path>
+              <path
+                d="M24.6805 5.14453H18.1874C17.5505 5.14453 17.0342 5.66086 17.0342 6.29778C17.0342 6.9347 17.5505 7.45102 18.1874 7.45102H24.6805C25.3175 7.45102 25.8338 6.9347 25.8338 6.29778C25.8338 5.66086 25.3175 5.14453 24.6805 5.14453Z"
+                fill="currentColor"
+              ></path>
+              <path
+                d="M22.6137 3.1804C22.6137 2.52848 22.0852 2 21.4333 2C20.7814 2 20.2529 2.52848 20.2529 3.1804V9.4168C20.2529 10.0687 20.7814 10.5972 21.4333 10.5972C22.0852 10.5972 22.6137 10.0687 22.6137 9.4168V3.1804Z"
+                fill="currentColor"
+              ></path>
+            </svg>
+            <span>New chat</span>
+          </button>
+
+          {/* Chat History List with Grouping */}
+          <div className="flex-grow overflow-y-auto space-y-1 custom-scrollbar pr-1">
+            {groupedSessionsForDisplay.map((group) => (
+              <div key={group.groupTitle} className="mt-1">
+                <h3 className="px-2.5 pt-2 pb-1 text-xs text-gray-400 uppercase tracking-wider font-semibold">
+                  {group.groupTitle}
+                </h3>
+                {group.sessions.map((session) => (
+                  <div
+                    key={session.id}
+                    onClick={() => handleSelectChat(session.id)}
+                    className={`group p-2.5 rounded-md cursor-pointer transition-all duration-150 ease-in-out transform hover:bg-gray-700/60 active:scale-[0.99] ${
+                      activeChatId === session.id
+                        ? "bg-gray-700/80" // Subtle active state, image doesn't show strong active state
+                        : "hover:bg-gray-750/50" // Matched hover from original
+                    }`}
+                  >
+                    <div className="flex justify-between items-center">
+                      <span
+                        className={`text-sm font-medium truncate ${
+                          activeChatId === session.id
+                            ? "text-slate-50"
+                            : "text-slate-200" // Brighter text for active
+                        } group-hover:text-white ${
+                          isTitling[session.id] ? "italic text-gray-400" : ""
+                        }`}
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12.56 0c.342.052.682.107 1.022.166m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
-                        />
-                      </svg>
-                    </button>{" "}
-                  </div>{" "}
-                  <p className="text-xs text-gray-400 group-hover:text-gray-300 mt-1">
-                    {new Date(session.lastModifiedAt).toLocaleDateString([], {
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </>
+                        {isTitling[session.id]
+                          ? "Generating title..."
+                          : session.title}
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteChat(session.id);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md hover:bg-red-600/40 text-red-400 hover:text-red-300 focus:outline-none focus:ring-1 focus:ring-red-500"
+                        aria-label="Delete chat"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          strokeWidth={1.5}
+                          stroke="currentColor"
+                          className="w-4 h-4"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12.56 0c.342.052.682.107 1.022.166m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    {/* Removed individual chat date as per image */}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
       )}
+      {/* === END OF UPDATED SIDEBAR SECTION === */}
 
       <div
-        className={`relative z-10 flex-grow flex flex-col bg-gray-950/70 backdrop-blur-xl shadow-2xl ${
-          !ticTacToeState ? "md:rounded-l-2xl border-l" : "w-full"
-        } border-gray-700/50 overflow-hidden transition-all duration-300 ease-in-out`}
+        className={`relative z-10 flex-grow flex flex-col bg-gray-950/60 backdrop-blur-xl shadow-2xl ${
+          !ticTacToeState ? "md:border-l" : "w-full"
+        } border-gray-700/50 overflow-hidden`}
       >
-        <header className="p-3 sm:p-4 border-b border-gray-700/50 flex items-center justify-between">
-          <h1 className="text-base sm:text-lg md:text-xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-red-400 truncate">
-            {ticTacToeState
-              ? "Tic-Tac-Toe Challenge Neon Grid 💥"
-              : "Exogtic AI 4B ✨"}
+        <header className="p-3 border-b border-gray-700/50 flex items-center flex-shrink-0 space-x-2">
+          {!ticTacToeState && (
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-1.5 text-slate-300 hover:text-purple-400 rounded-md md:hidden"
+              aria-label={isSidebarOpen ? "Close sidebar" : "Open sidebar"}
+            >
+              {isSidebarOpen ? (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                  stroke="currentColor"
+                  className="w-5 h-5 sm:w-6 sm:h-6"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                  stroke="currentColor"
+                  className="w-5 h-5 sm:w-6 sm:h-6"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                  />
+                </svg>
+              )}
+            </button>
+          )}
+          {ticTacToeState && <div className="w-8 h-8 md:hidden"></div>}
+          <h1 className="flex-grow text-center text-lg md:text-2xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-red-400 truncate">
+            {ticTacToeState ? "Tic-Tac-Toe Neon Grid 💥" : "Exogtic AI 4B ✨"}
           </h1>
+          {!ticTacToeState ? (
+            <div className="w-8 h-8 md:hidden"></div>
+          ) : (
+            <div className="w-8 h-8 md:hidden"></div>
+          )}
         </header>
 
         {ticTacToeState ? (
-          // --- GAME MODE UI ---
           <div className="flex-grow flex flex-col md:flex-row overflow-hidden">
-            <div className="h-[55vh] sm:h-[60vh] md:h-full w-full md:w-2/5 lg:w-1/3 p-1 sm:p-2 md:p-4 border-b md:border-b-0 md:border-r border-purple-500/30 flex items-center justify-center bg-gray-950/40 custom-scrollbar overflow-y-auto">
+            <div className="h-[55vh] sm:h-[60vh] md:h-full w-full md:flex-[0_0_auto] md:w-[22rem] lg:w-[26rem] p-1 pt-2 sm:p-2 md:p-4 border-b md:border-b-0 md:border-r border-purple-500/30 flex items-center justify-center bg-gray-950/30 custom-scrollbar overflow-y-auto">
               <TicTacToeGameUI />
             </div>
-            <div className="h-[45vh] sm:h-[40vh] md:h-full w-full md:w-3/5 lg:w-2/3 flex flex-col bg-gray-950/70">
+            <div className="flex-grow flex flex-col bg-gray-950/60">
               <div
                 ref={chatContainerRef}
-                className="flex-grow p-2 sm:p-3 md:p-4 space-y-2 sm:space-y-3 overflow-y-auto smooth-scroll custom-scrollbar"
+                className="flex-grow p-2 sm:p-3 md:p-4 space-y-1.5 sm:space-y-2 overflow-y-auto smooth-scroll custom-scrollbar"
               >
-                {/* Messages for Game Log */}
                 {currentMessages
-                  .filter((msg) => msg.isGameMessage === true || ticTacToeState)
+                  .filter((msg) => msg.isGameMessage === true || ticTacToeState) // Ensure only game messages show here
                   .map((msg) => {
                     let bubbleBaseStyle =
                       "max-w-[90%] sm:max-w-[80%] px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl shadow-lg";
@@ -1215,160 +1473,126 @@ export default function ChatPage() {
                     let messageContainerStyle = `flex animate-fadeInEnhanced my-1 ${
                       msg.role === "user" ? "justify-end" : "justify-start"
                     }`;
-
                     if (msg.messageType === "ai_thinking") {
                       bubbleRoleStyle =
-                        "bg-transparent text-purple-300 italic shadow-none !px-0"; // No padding for thinking text itself
+                        "bg-transparent text-purple-300 italic shadow-none !px-0";
                       messageContainerStyle = `flex justify-center animate-fadeInEnhanced my-1.5 text-center w-full`;
                     } else if (msg.messageType === "user_action") {
                       bubbleRoleStyle =
-                        "bg-purple-600/90 text-white rounded-br-none opacity-90";
+                        "bg-purple-600/90 text-white rounded-br-none opacity-90 text-xs sm:text-sm";
                     } else if (msg.messageType === "system_info") {
                       bubbleRoleStyle =
                         "bg-gray-700/80 text-slate-300 italic shadow-none text-xs px-2 py-1";
                       messageContainerStyle = `flex justify-center animate-fadeInEnhanced my-1 text-center w-full`;
                     } else if (msg.role === "user") {
+                      // Default user game message (if any other type)
                       bubbleRoleStyle =
-                        "bg-purple-600 text-white rounded-br-none";
+                        "bg-purple-800 text-white rounded-br-none mb-2";
                     } else {
-                      // Assistant's commentary or regular game messages
+                      // Default assistant game message
                       bubbleRoleStyle =
                         "bg-gray-800 text-slate-200 rounded-bl-none";
                     }
-                    const containsFencedCode = msg.content.includes("```");
-
                     return (
                       <div key={msg.id} className={messageContainerStyle}>
                         <div
-                          className={`${bubbleBaseStyle} ${bubbleRoleStyle} ${
-                            containsFencedCode ? "p-0" : ""
-                          }`}
+                          className={`${bubbleBaseStyle} ${bubbleRoleStyle}`}
                         >
-                          {msg.messageType === "ai_thinking" ? (
-                            // For simple "ai_thinking" messages, direct rendering is fine
-                            // And we apply padding here since the bubble itself might have p-0 if containsFencedCode was true (though unlikely for thinking messages)
-                            <p className="text-purple-300 italic text-xs sm:text-sm whitespace-pre-wrap break-words px-3 py-1.5 sm:px-4 sm:py-2">
-                              {msg.content}
-                            </p>
-                          ) : (
-                            // Wrap ReactMarkdown in a div that gets the prose classes
-                            <div
-                              className={`prose prose-xs sm:prose-sm prose-invert max-w-none break-words 
-                               prose-p:my-0.5 prose-ul:my-0.5 prose-ol:my-0.5 
-                               prose-headings:my-1 
-                               prose-pre:!m-0 prose-pre:!p-0 prose-pre:!bg-transparent 
-                               prose-code:text-xs prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:bg-gray-700/70 prose-code:text-purple-300
-                               ${containsFencedCode ? "" : "p-3 sm:p-0"}`}
+                          <div
+                            className={`w-full prose prose-xs sm:prose-sm prose-invert max-w-none break-words prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-headings:my-2 prose-pre:!m-0 prose-pre:!p-0 prose-pre:!bg-transparent prose-code:font-mono prose-code:text-purple-300 prose-code:px-[0.4em] prose-code:py-[0.2em] prose-code:bg-gray-700/50 prose-code:rounded-[0.2em] prose-code:text-xs`}
+                          >
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={{ code: CodeBlock }}
                             >
-                              {/* Add padding back if NOT a fenced code block message, 
-                                   because bubble itself might have p-0 due to containsFencedCode.
-                                   Or better, always have padding on the bubble, and let CodeBlock fit in.
-                                   The previous line on bubble: ${containsFencedCode ? 'p-0' : ''}
-                                   Let's revert that for a moment and rely on prose-pre:!p-0 for code block.
-                                   The bubble should always have its base padding defined by bubbleBaseStyle.
-                                   The CodeBlock component has its own `my-2`.
-                               */}
-                              <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                components={{
-                                  code: CodeBlock, // Custom component for fenced blocks and inline code
-                                  // Ensure paragraphs within markdown get correct text color from prose-invert
-                                  p: ({ node, ...props }) => <p {...props} />,
-                                  // You can add more custom renderers if needed:
-                                  // ul: ({node, ...props}) => <ul className="list-disc list-inside ml-4 my-1" {...props} />,
-                                  // ol: ({node, ...props}) => <ol className="list-decimal list-inside ml-4 my-1" {...props} />,
-                                  // strong: ({node, ...props}) => <strong className="font-bold" {...props} />,
-                                }}
-                              >
-                                {msg.content}
-                              </ReactMarkdown>
-                            </div>
-                          )}
+                              {msg.content}
+                            </ReactMarkdown>
+                          </div>
                         </div>
                       </div>
                     );
                   })}
               </div>
-              <form
-                onSubmit={handleSubmit}
-                className="flex space-x-3 p-2 sm:p-3 border-t border-gray-700/50 bg-gray-950/50"
-              >
-                {/* ... Input form ... */}
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder={
-                    ticTacToeState &&
-                    ticTacToeState.status === "playing" &&
-                    ticTacToeState.currentPlayer === ticTacToeState.humanSymbol
-                      ? "Click board or type comment..."
-                      : ticTacToeState
-                      ? "Game in progress..."
-                      : activeChatId
-                      ? "Message your AI... 🤖"
-                      : "Select or create a chat to begin"
-                  }
-                  className="flex-grow p-2 sm:p-3 bg-gray-800 border border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:outline-none transition-all duration-150 placeholder-gray-500 text-slate-100 text-xs sm:text-sm md:text-base"
-                  disabled={
-                    isLoading ||
-                    !activeChatId ||
-                    (ticTacToeState?.status === "playing" &&
-                      ticTacToeState?.currentPlayer ===
-                        ticTacToeState?.aiSymbol &&
-                      !isFetchingCommentary)
-                  }
-                />
-                <button
-                  type="submit"
-                  disabled={
-                    isLoading ||
-                    !activeChatId ||
-                    (ticTacToeState?.status === "playing" &&
-                      ticTacToeState?.currentPlayer ===
-                        ticTacToeState?.aiSymbol &&
-                      !isFetchingCommentary) ||
-                    (input.trim() === "" &&
-                      !(
+              <div className="px-2 pb-2 pt-1 sm:px-3 sm:pb-3 sm:pt-2">
+                <form
+                  onSubmit={handleSubmit}
+                  className="flex-shrink-0 bg-gray-800/90 backdrop-blur-sm rounded-xl p-1.5 sm:p-2 shadow-xl border border-gray-700/50"
+                >
+                  <div className="flex items-center space-x-1.5 sm:space-x-2">
+                    <textarea
+                      ref={textareaRef}
+                      rows={1}
+                      value={input}
+                      onChange={handleInputChange}
+                      onKeyDown={handleTextareaKeyDown}
+                      placeholder={
                         ticTacToeState &&
                         ticTacToeState.status === "playing" &&
                         ticTacToeState.currentPlayer ===
                           ticTacToeState.humanSymbol
-                      ))
-                  }
-                  className="px-3 sm:px-4 py-2 sm:py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800/50 disabled:text-slate-400 disabled:cursor-not-allowed rounded-xl font-semibold shadow-md focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 focus:ring-offset-gray-950 transition-all duration-150 transform active:scale-95 hover:shadow-lg hover:shadow-purple-500/40"
-                >
-                  {" "}
-                  <svg
-                    xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    className="w-5 h-5"
-                  >
-                    <path d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z" />
-                    <path
-                      d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z"
-                      transform="translate(3 0)"
+                          ? "Click board or type comment..."
+                          : "Game in progress..."
+                      }
+                      className="flex-grow p-2 sm:p-2.5 bg-gray-700/50 border border-transparent rounded-lg focus:ring-1 focus:ring-purple-500 focus:border-purple-500 focus:outline-none transition-all placeholder-gray-400 text-slate-100 text-xs sm:text-sm resize-none overflow-y-auto max-h-24 sm:max-h-32 custom-scrollbar"
+                      disabled={
+                        isLoading ||
+                        !activeChatId ||
+                        (ticTacToeState &&
+                          ticTacToeState.status === "playing" &&
+                          ticTacToeState?.currentPlayer ===
+                            ticTacToeState?.aiSymbol &&
+                          !isFetchingCommentary)
+                      }
                     />
-                  </svg>{" "}
-                </button>
-              </form>
+                    <button
+                      type="submit"
+                      disabled={
+                        isLoading ||
+                        !activeChatId ||
+                        (ticTacToeState?.status === "playing" &&
+                          ticTacToeState?.currentPlayer ===
+                            ticTacToeState?.aiSymbol &&
+                          !isFetchingCommentary) ||
+                        (input.trim() === "" &&
+                          !(
+                            ticTacToeState &&
+                            ticTacToeState.status === "playing" &&
+                            ticTacToeState.currentPlayer ===
+                              ticTacToeState.humanSymbol
+                          ))
+                      }
+                      className="p-2 sm:p-2.5 bg-purple-600 hover:bg-purple-700 rounded-lg font-semibold shadow-md focus:outline-none focus:ring-1 focus:ring-purple-400 transition-all active:scale-95 hover:shadow-lg hover:shadow-purple-500/30 flex-shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        className="w-5 h-5 text-white"
+                      >
+                        <path d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z" />
+                        <path
+                          d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z"
+                          transform="translate(3 0)"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           </div>
         ) : (
           <>
+            {" "}
             {/* Regular Chat UI */}
             <div
               ref={chatContainerRef}
-              className="flex-grow p-3 sm:p-4 md:p-6 space-y-3 sm:space-y-4 overflow-y-auto smooth-scroll custom-scrollbar"
+              className="flex-grow p-2 xs:p-2.5 sm:p-3 md:p-4 space-y-1.5 sm:space-y-2 overflow-y-auto smooth-scroll custom-scrollbar"
             >
-              {/* Placeholder for "No messages" or "Select chat" */}
               {activeChatId && currentMessages.length === 0 && !isLoading && (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                  {" "}
                   <svg
-                    xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)"
+                    xmlns="http://www.w3.org/2000/svg"
                     fill="none"
                     viewBox="0 0 24 24"
                     strokeWidth={1.5}
@@ -1387,7 +1611,7 @@ export default function ChatPage() {
               {!activeChatId && chatSessions.length > 0 && (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500">
                   <svg
-                    xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)"
+                    xmlns="http://www.w3.org/2000/svg"
                     fill="none"
                     viewBox="0 0 24 24"
                     strokeWidth={1.5}
@@ -1403,197 +1627,235 @@ export default function ChatPage() {
                   <p>Select a chat from the sidebar or create a new one.</p>
                 </div>
               )}
-              {/* Messages for Regular Chat */}
               {currentMessages.map((msg) => {
                 let bubbleBaseStyle =
-                  "max-w-[90%] sm:max-w-[80%] px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl shadow-lg";
+                  "max-w-[90%] sm:max-w-[60%] px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl shadow-lg text-base";
                 let bubbleRoleStyle = "";
                 let messageContainerStyle = `flex animate-fadeInEnhanced my-1 ${
                   msg.role === "user" ? "justify-end" : "justify-start"
                 }`;
-
-                // Determine bubble style based on role and messageType (same as before)
                 if (msg.messageType === "ai_thinking") {
-                  bubbleBaseStyle = "max-w-[90%] sm:max-w-[80%] rounded-2xl";
+                  // This specific type might not be used in regular chat
                   bubbleRoleStyle =
                     "bg-transparent text-purple-300 italic shadow-none !px-0";
                   messageContainerStyle = `flex justify-center animate-fadeInEnhanced my-1.5 text-center w-full`;
-                } else if (msg.messageType === "user_action") {
-                  bubbleRoleStyle =
-                    "bg-purple-600/90 text-white rounded-br-none opacity-90 text-xs sm:text-sm";
-                } else if (msg.messageType === "system_info") {
-                  bubbleRoleStyle =
-                    "bg-gray-700/80 text-slate-300 italic shadow-none text-xs px-2 py-1";
-                  messageContainerStyle = `flex justify-center animate-fadeInEnhanced my-1 text-center w-full`;
                 } else if (msg.role === "user") {
-                  bubbleRoleStyle = "bg-purple-900 text-white rounded-br-none";
+                  bubbleRoleStyle = "bg-purple-600 text-white rounded-br-none";
                 } else {
+                  // Assistant
                   bubbleRoleStyle =
                     "bg-gray-800 text-slate-200 rounded-bl-none";
                 }
                 return (
                   <div key={msg.id} className={messageContainerStyle}>
                     <div className={`${bubbleBaseStyle} ${bubbleRoleStyle}`}>
-                      {" "}
-                      {/* Bubble always has its style */}
-                      {msg.messageType === "ai_thinking" ? (
-                        <p className="text-purple-300 italic text-xs sm:text-sm whitespace-pre-wrap break-words px-3 py-1.5 sm:px-4 sm:py-2">
-                          {msg.content}
-                        </p>
-                      ) : (
-                        <div
-                          className={`
-              w-full                        
-              prose                          
-              prose-xs sm:prose-sm          
-              prose-invert                 
-              max-w-none                     
-              break-words                    
-              prose-p:my-1                   
-              prose-ul:my-1 prose-ol:my-1    
-              prose-headings:my-2            
-              prose-pre:!m-0 prose-pre:!p-0 prose-pre:!bg-transparent 
-              prose-code:font-mono prose-code:text-purple-300 prose-code:px-[0.4em] prose-code:py-[0.2em] prose-code:bg-gray-700/50 prose-code:rounded-[0.2em] prose-code:text-xs
-            `}
-                        >
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              // This 'code' renderer will now differentiate inline vs. block
-                              code: ({
-                                node,
-                                className,
-                                children,
-                                ...props
-                              }) => {
-                                // For fenced code blocks, use our custom CodeBlock component
-                                const match = /language-(\w+)/.exec(
-                                  className || ""
-                                );
-                                if (match) {
-                                  return (
-                                    <CodeBlock className={className} {...props}>
-                                      {String(children).replace(/\n$/, "")}
-                                    </CodeBlock>
-                                  );
-                                }
-                                // Fallback for code blocks without a language (rare with GFM)
-                                // Render with basic <pre><code> structure, styled by prose
-                                return (
-                                  <pre
-                                    className={className}
-                                    {...(props as React.HTMLAttributes<HTMLPreElement>)}
-                                  >
-                                    <code>{children}</code>
-                                  </pre>
-                                );
-                              },
-                              // Ensure paragraphs within markdown get correct text color
-                              p: ({ node, ...props }) => <p {...props} />,
-                            }}
-                          >
-                            {msg.content}
-                          </ReactMarkdown>
+                      {msg.role === "user" && msg.images && msg.images[0] && (
+                        <div className="mb-1.5 mt-0.5 rounded-md overflow-hidden border border-purple-400/30 max-w-[200px] sm:max-w-[250px]">
+                          <img
+                            src={`data:image/png;base64,${msg.images[0]}`} // Assuming images are stored as base64 strings
+                            alt="User attachment"
+                            className="max-w-full h-auto"
+                          />
                         </div>
                       )}
+                      <div
+                        className={`w-full prose prose-xs sm:prose-sm prose-invert max-w-none break-words prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-headings:my-2 prose-pre:!m-0 prose-pre:!p-0 prose-pre:!bg-transparent prose-code:font-mono prose-code:text-purple-300 prose-code:px-[0.4em] prose-code:py-[0.2em] prose-code:bg-gray-700/50 prose-code:rounded-[0.2em] prose-code:text-xs`}
+                      >
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{ code: CodeBlock }}
+                        >
+                          {msg.content}
+                        </ReactMarkdown>
+                      </div>
                     </div>
                   </div>
                 );
               })}
               {isLoading && (
-                <div className="flex justify-start animate-fadeInEnhanced">
-                  <div className="max-w-xs lg:max-w-md px-4 py-2.5 rounded-2xl shadow-lg bg-gray-800 text-slate-200 rounded-bl-none">
-                    <p className="text-sm sm:text-base whitespace-pre-wrap animate-pulse">
-                      Thinking...
-                    </p>
+                <div className="flex justify-start animate-fadeInEnhanced my-1">
+                  {" "}
+                  {/* Aligns with message bubbles */}
+                  <div className="max-w-xs lg:max-w-md px-3 py-2 sm:px-4 sm:py-2.5 rounded-2xl shadow-lg bg-gray-800 text-slate-200 rounded-bl-none flex items-center space-x-2">
+                    {/* Your SVG with animation and styling */}
+                    <svg
+                      version="1.0"
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="24px"
+                      height="24px"
+                      viewBox="0 0 360.000000 360.000000"
+                      preserveAspectRatio="xMidYMid meet"
+                      className="animate-spin fill-slate-300 w-5 h-5 sm:w-6 sm:h-6" // animate-spin and size classes
+                    >
+                      <g
+                        transform="translate(0.000000,360.000000) scale(0.100000,-0.100000)"
+                        stroke="none"
+                        // fill is now controlled by Tailwind class on <svg>
+                      >
+                        <path d="M1644 3343 c4 -54 9 -118 11 -143 3 -35 1 -31 -10 20 -8 36 -14 88 -15 115 -1 76 -8 95 -37 95 -23 0 -25 -3 -18 -32 12 -62 28 -709 17 -720 -7 -7 -11 87 -14 299 -4 254 -8 320 -23 376 -9 37 -23 67 -29 67 -63 0 -360 -122 -372 -153 -5 -13 16 -336 32 -492 4 -40 3 -57 -4 -50 -9 9 -25 162 -48 443 -4 45 -9 82 -11 82 -3 0 -31 -21 -64 -46 -58 -46 -59 -48 -59 -98 0 -28 4 -89 10 -135 5 -46 12 -142 14 -215 l6 -131 -25 170 c-13 94 -24 205 -25 248 0 42 -4 77 -8 77 -15 0 -109 -123 -145 -190 -20 -36 -48 -96 -63 -135 -22 -59 -25 -80 -20 -134 5 -56 12 -74 57 -140 50 -75 51 -77 47 -139 -4 -60 -11 -74 -43 -85 -6 -2 -2 -62 13 -163 30 -215 27 -221 -13 -22 -19 93 -37 172 -40 178 -3 5 -13 10 -21 10 -27 0 -91 39 -112 67 -36 50 -43 22 -40 -173 l3 -179 65 -42 c36 -23 73 -50 82 -59 24 -24 57 -114 64 -178 6 -49 4 -57 -19 -80 -14 -14 -36 -26 -48 -26 -11 0 -48 23 -81 50 -50 42 -88 62 -88 47 0 -21 73 -287 88 -320 18 -41 28 -48 130 -101 l111 -56 -4 102 c-4 101 -4 101 6 33 22 -156 17 -146 88 -175 57 -23 64 -29 66 -55 1 -17 5 -38 9 -47 7 -16 2 -18 -33 -18 -53 0 -62 -20 -27 -61 31 -37 32 -39 51 -204 18 -148 41 -245 90 -381 34 -93 104 -238 112 -231 2 2 -3 35 -11 74 -27 128 -39 291 -34 479 4 155 7 188 21 202 15 14 19 15 32 1 19 -19 40 -130 55 -289 10 -103 16 -132 36 -162 18 -29 21 -38 10 -38 -8 0 -17 -4 -20 -9 -9 -14 143 -451 156 -451 2 0 4 94 4 209 2 174 5 214 19 241 15 29 20 32 48 27 124 -23 162 -27 237 -27 47 0 116 7 155 15 92 20 92 20 111 -16 12 -25 17 -76 21 -241 7 -242 -3 -246 99 42 64 182 67 193 50 206 -17 12 -17 14 2 41 13 19 22 53 26 103 21 229 48 360 75 360 29 0 36 -37 39 -230 4 -199 -5 -331 -33 -464 -8 -38 -13 -72 -10 -74 8 -9 86 161 125 275 41 116 71 266 85 413 8 79 15 102 48 137 29 32 16 53 -32 53 -40 0 -40 1 -30 27 5 14 8 35 7 46 -2 16 9 25 61 47 76 30 75 28 91 193 7 65 14 116 16 114 3 -2 0 -60 -5 -128 -5 -68 -7 -126 -5 -128 7 -7 203 91 218 109 17 19 49 118 76 230 11 47 22 95 26 108 10 35 -15 27 -83 -28 -34 -27 -71 -50 -83 -50 -11 0 -33 12 -47 26 -23 23 -25 31 -19 79 7 62 41 157 65 180 9 9 45 35 81 58 l65 42 3 179 c3 198 -3 221 -43 170 -21 -26 -62 -51 -116 -67 -11 -4 -24 -46 -47 -159 -17 -84 -33 -164 -35 -178 l-4 -25 -2 25 c0 14 8 81 19 150 25 161 25 174 -5 204 -21 21 -25 35 -25 80 0 48 5 62 50 128 83 124 80 200 -16 388 -40 78 -137 210 -154 210 -4 0 -10 -57 -14 -127 -4 -71 -15 -182 -26 -248 l-19 -120 5 125 c4 110 13 221 29 357 4 40 3 42 -58 92 -34 28 -65 51 -68 51 -4 0 -9 -42 -13 -92 -12 -168 -37 -422 -41 -427 -9 -9 -5 117 11 317 9 111 13 209 10 217 -12 33 -305 155 -370 155 -7 0 -21 -32 -31 -72 -15 -60 -20 -128 -24 -383 -5 -216 -9 -298 -15 -270 -9 38 8 616 21 698 5 34 3 37 -20 37 -21 0 -25 -5 -31 -46 -3 -26 -6 -65 -7 -88 -1 -23 -5 -52 -10 -66 -5 -16 -7 16 -3 86 6 134 21 124 -180 124 l-138 0 6 -97z m303 -175 c-3 -7 -5 -2 -5 12 0 14 2 19 5 13 2 -7 2 -19 0 -25z m-249 -1118 c0 -85 -3 -166 -7 -180 -11 -36 -21 328 -20 664 l2 291 13 -310 c6 -170 12 -380 12 -465z m226 30 c-7 -225 -9 -238 -17 -165 -6 52 -6 194 2 410 6 182 12 364 14 405 1 41 3 -33 5 -165 2 -132 0 -350 -4 -485z m-320 -78 c-13 -26 -21 160 -14 328 l5 145 8 -228 c5 -125 5 -235 1 -245z m406 83 c-5 -87 -7 -57 -7 140 0 225 1 236 7 110 4 -77 4 -190 0 -250z m537 23 c-3 -8 -6 -5 -6 6 -1 11 2 17 5 13 3 -3 4 -12 1 -19z m-115 -166 c-4 -39 -7 -72 -4 -72 2 0 34 18 70 39 60 35 103 47 155 42 23 -2 23 -56 -3 -152 -60 -228 -89 -319 -107 -345 -11 -15 -49 -44 -84 -64 l-64 -36 -10 -64 -10 -65 -3 58 c-3 63 -13 74 -55 58 -25 -10 -26 -14 -30 -93 l-3 -83 -2 87 c-1 48 -5 89 -9 91 -5 3 -23 8 -40 12 l-33 7 -1 -79 c-1 -43 -4 -116 -8 -163 l-6 -85 -7 65 c-4 36 -3 110 2 165 5 55 6 102 4 105 -3 3 -35 25 -72 50 -36 25 -65 48 -64 53 1 4 2 30 2 59 0 50 2 54 58 108 31 30 109 90 173 132 l116 77 12 89 c6 48 11 100 11 114 0 13 3 28 8 32 11 12 14 -62 4 -142z m-1252 112 c0 -15 5 -67 12 -116 l12 -89 115 -77 c64 -41 142 -101 173 -132 56 -54 58 -58 58 -108 0 -29 1 -55 2 -59 1 -5 -29 -29 -67 -55 -55 -37 -70 -52 -68 -70 8 -118 11 -338 4 -316 -5 15 -12 95 -16 178 -5 101 -11 150 -19 149 -6 -1 -22 -4 -36 -8 -24 -6 -25 -11 -31 -96 l-5 -90 -2 86 -2 87 -31 6 c-17 3 -35 3 -40 0 -5 -3 -10 -31 -10 -62 l-1 -57 -12 65 -11 64 -64 36 c-35 20 -72 49 -84 64 -17 24 -55 145 -113 366 -8 30 -14 71 -14 92 l0 38 53 0 c35 0 63 -7 87 -21 19 -12 50 -30 69 -42 l34 -21 -7 107 c-4 71 -3 107 4 107 5 0 10 -12 10 -26z m-333 -156 c-3 -7 -5 -2 -5 12 0 14 2 19 5 13 2 -7 2 -19 0 -25z m1910 -15 c-3 -10 -5 -2 -5 17 0 19 2 27 5 18 2 -10 2 -26 0 -35z m-1900 -65 c-3 -7 -5 -2 -5 12 0 14 2 19 5 13 2 -7 2 -19 0 -25z m1890 -5 c-3 -10 -5 -4 -5 12 0 17 2 24 5 18 2 -7 2 -21 0 -30z m-1868 -157 c2 -66 -6 -35 -12 49 -4 60 -3 69 3 35 5 -25 9 -63 9 -84z m1856 39 c-4 -42 -10 -74 -12 -71 -3 2 -2 39 2 81 4 42 10 74 12 71 3 -2 2 -39 -2 -81z m-1848 -182 c-3 -10 -5 -2 -5 17 0 19 2 27 5 18 2 -10 2 -26 0 -35z m973 -134 c9 -4 48 -98 88 -210 80 -221 79 -216 28 -298 l-26 -41 -42 21 c-56 29 -160 29 -216 0 l-40 -20 -15 22 c-8 12 -24 41 -35 64 l-22 42 20 63 c11 35 44 128 74 208 51 138 55 146 87 157 33 11 68 8 99 -8z m307 -656 c-3 -10 -5 -4 -5 12 0 17 2 24 5 18 2 -7 2 -21 0 -30z m-730 5 c-3 -8 -6 -5 -6 6 -1 11 2 17 5 13 3 -3 4 -12 1 -19z" />
+                      </g>
+                    </svg>
+                    <span className="text-xs sm:text-sm text-slate-300">
+                      EGO is pondering...
+                    </span>
                   </div>
                 </div>
               )}
             </div>
-            <form
-              onSubmit={handleSubmit}
-              className="flex space-x-3 p-2 sm:p-3 md:p-4 border-t border-gray-700/50 bg-gray-950/50"
-            >
-              {selectedImagePreview && (
-                <div className="mb-2 p-2 border border-gray-700 rounded-lg relative w-24 h-24">
-                  <img
-                    src={selectedImagePreview}
-                    alt="Selected preview"
-                    className="w-full h-full object-contain rounded"
+            {/* === MODIFIED "DEEPSEEK STYLE" INPUT AREA FOR REGULAR CHAT === */}
+            <div className="px-2 pb-2 pt-1 sm:px-3 sm:pb-3 sm:pt-2">
+              <div className="bg-gray-800/90 backdrop-blur-sm rounded-xl p-2 sm:p-2.5 shadow-xl border border-gray-700/50">
+                {selectedImagePreview && (
+                  <div className="mb-2 p-1.5 border border-gray-600 rounded-lg relative w-20 h-20 sm:w-24 sm:h-24 bg-gray-700/40 mx-auto sm:mx-0">
+                    <img
+                      src={selectedImagePreview}
+                      alt="Selected preview"
+                      className="w-full h-full object-contain rounded"
+                    />
+                    <button
+                      type="button"
+                      onClick={removeSelectedImage}
+                      className="absolute -top-1.5 -right-1.5 bg-red-600 text-white rounded-full p-0 w-5 h-5 flex items-center justify-center text-[0.6rem] leading-none shadow-md hover:bg-red-700 z-10"
+                      aria-label="Remove image"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                )}
+                <form onSubmit={handleSubmit}>
+                  <textarea
+                    ref={textareaRef}
+                    rows={1}
+                    value={input}
+                    onChange={handleInputChange}
+                    onKeyDown={handleTextareaKeyDown}
+                    placeholder={
+                      activeChatId
+                        ? "Message the AI or attach an image..."
+                        : "Select or create a chat"
+                    }
+                    className="flex-grow w-full p-2 sm:p-2.5 bg-gray-700/60 border border-gray-600 rounded-lg focus:ring-1 focus:ring-purple-500 focus:border-purple-500 focus:outline-none transition-all placeholder-gray-400 text-slate-100 text-sm resize-none overflow-y-auto max-h-24 sm:max-h-32 custom-scrollbar"
+                    disabled={
+                      isLoading || !activeChatId || ticTacToeState !== null
+                    }
                   />
-                  <button
-                    type="button"
-                    onClick={removeSelectedImage}
-                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 w-5 h-5 flex items-center justify-center text-xs"
-                    aria-label="Remove image"
-                  >
-                    &times;
-                  </button>
-                </div>
-              )}
-              {/* ... Input form ... */}
-              <div className="flex items-center space-x-2 sm:space-x-3 w-full">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleImageChange}
-                  className="hidden" // Hide the default input
-                  accept="image/png, image/jpeg, image/webp, image/gif" // Specify acceptable image types
-                />
-                <button
-                  type="button"
-                  onClick={triggerImageUpload}
-                  className="p-2 sm:p-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-slate-300 transition-colors"
-                  aria-label="Attach image"
-                  title="Attach image"
-                >
-                  {/* Simple Paperclip Icon */}
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    className="w-5 h-5"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M15.621 4.379a3 3 0 0 0-4.242 0l-7 7a3 3 0 0 0 4.241 4.243h.001l.497-.5a.75.75 0 0 1 1.064 1.057l-.498.501-.002.002a4.5 4.5 0 0 1-6.364-6.364l7-7a4.5 4.5 0 0 1 6.368 6.36l-3.455 3.553A2.625 2.625 0 1 1 9.53 9.53l3.45-3.451a.75.75 0 1 1 1.061 1.06l-3.45 3.452a1.125 1.125 0 0 0 1.59 1.591l3.455-3.553a3 3 0 0 0 0-4.242Z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </button>
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder={
-                    activeChatId
-                      ? "Message your AI... 🤖"
-                      : "Select or create a chat to begin"
-                  }
-                  className="flex-grow p-2 sm:p-3 bg-gray-800 border border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:outline-none transition-all duration-150 placeholder-gray-500 text-slate-100 text-xs sm:text-sm md:text-base"
-                  disabled={isLoading || !activeChatId}
-                />
-                <button
-                  type="submit"
-                  disabled={isLoading || !input.trim() || !activeChatId}
-                  className="px-3 sm:px-4 py-2 sm:py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800/50 disabled:text-slate-400 disabled:cursor-not-allowed rounded-xl font-semibold shadow-md focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 focus:ring-offset-gray-950 transition-all duration-150 transform active:scale-95 hover:shadow-lg hover:shadow-purple-500/40"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                    className="w-5 h-5"
-                  >
-                    <path d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z" />
-                    <path
-                      d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z"
-                      transform="translate(3 0)"
-                    />
-                  </svg>
-                </button>
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="flex items-center space-x-2">
+                      {/* Search Button (Dormant) */}
+                      <button
+                        type="button"
+                        className="px-2.5 py-1.5 text-xs sm:text-sm rounded-md bg-gray-700/50 hover:bg-gray-600/50 text-slate-300 transition-colors flex items-center space-x-1 opacity-50 cursor-not-allowed"
+                        title="Search (coming soon)"
+                        disabled
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          className="w-4 h-4"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                        <span>Search</span>
+                      </button>
+                      {/* Game Dropdown Button */}
+                      <div className="relative flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setShowGameDropdown(!showGameDropdown)}
+                          className="px-2.5 py-1.5 text-xs sm:text-sm rounded-md bg-gray-700/50 hover:bg-gray-600/50 text-slate-300 transition-colors flex items-center space-x-1"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                            className="w-4 h-4"
+                          >
+                            <path d="M7.75 5.25a.75.75 0 0 0-1.5 0v1.5h-1.5a.75.75 0 0 0 0 1.5h1.5v1.5a.75.75 0 0 0 1.5 0v-1.5h1.5a.75.75 0 0 0 0-1.5h-1.5V5.25Z" />
+                            <path
+                              fillRule="evenodd"
+                              d="M9.25 2C6.025 2 3.5 4.05 3.5 6.75v8.5C3.5 17.95 6.025 20 9.25 20s5.75-2.05 5.75-4.75v-8.5C15 4.05 12.475 2 9.25 2ZM5 6.75C5 5.195 6.916 4 9.25 4s4.25 1.195 4.25 2.75v8.5C13.5 16.805 11.584 18 9.25 18S5 16.805 5 15.25v-8.5ZM11.25 8a.75.75 0 0 0-1.5 0v1.5h-1.5a.75.75 0 0 0 0 1.5h1.5V12a.75.75 0 0 0 1.5 0v-1.5h1.5a.75.75 0 0 0 0-1.5h-1.5V8Z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                          <span>Game</span>
+                        </button>
+                        {showGameDropdown && (
+                          <div className="absolute bottom-full left-0 mb-1.5 w-48 bg-gray-700/95 backdrop-blur-md border border-gray-600 rounded-lg shadow-2xl py-1 z-20">
+                            <button
+                              onClick={() => {
+                                initiateTicTacToe();
+                              }}
+                              className="w-full text-left px-3 py-1.5 text-sm text-slate-200 hover:bg-purple-600/70 rounded-md"
+                            >
+                              Tic-Tac-Toe
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {/* Attach Image Button */}
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleImageChange}
+                        className="hidden"
+                        accept="image/png, image/jpeg, image/webp, image/gif"
+                      />
+                      <button
+                        type="button"
+                        onClick={triggerImageUpload}
+                        className="p-2 rounded-lg bg-gray-700/50 hover:bg-gray-600/50 text-slate-300 transition-colors"
+                        aria-label="Attach image"
+                        title="Attach image"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          className="w-5 h-5"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M15.621 4.379a3 3 0 0 0-4.242 0l-7 7a3 3 0 0 0 4.241 4.243h.001l.497-.5a.75.75 0 0 1 1.064 1.057l-.498.501-.002.002a4.5 4.5 0 0 1-6.364-6.364l7-7a4.5 4.5 0 0 1 6.368 6.36l-3.455 3.553A2.625 2.625 0 1 1 9.53 9.53l3.45-3.451a.75.75 0 1 1 1.061 1.06l-3.45 3.452a1.125 1.125 0 0 0 1.59 1.591l3.455-3.553a3 3 0 0 0 0-4.242Z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      </button>
+                      {/* Send Button */}
+                      <button
+                        type="submit"
+                        disabled={
+                          isLoading ||
+                          (!input.trim() && !selectedImageFile) ||
+                          !activeChatId ||
+                          ticTacToeState !== null
+                        }
+                        className="p-2 sm:p-2.5 bg-purple-600 hover:bg-purple-700 rounded-lg font-semibold shadow-md focus:outline-none focus:ring-1 focus:ring-purple-400 transition-all active:scale-95 hover:shadow-lg hover:shadow-purple-500/30 flex-shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          className="w-5 h-5 text-white"
+                        >
+                          <path d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z" />
+                          <path
+                            d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z"
+                            transform="translate(3 0)"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </form>
               </div>
-            </form>
+            </div>
           </>
         )}
       </div>

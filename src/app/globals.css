@@ -3,13 +3,27 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+@import url("https://fonts.googleapis.com/css2?family=Audiowide&family=Sofia+Sans:ital,wght@0,1..1000;1,1..1000&display=swap");
 
 body {
-  /* bg-black removed as the main page div will not have it, letting animated-gradient show */
-  @apply text-slate-200; 
+  @apply text-slate-200;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /* font-family set by Tailwind config via layout.tsx */
+}
+
+.font-sofia {
+  font-family: "Sofia Sans", sans-serif;
+  font-size: larger;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+  letter-spacing: 0.05em;
+}
+
+.font-audiowide {
+  font-family: "Audiowide", sans-serif;
+  font-weight: 400;
+  font-style: normal;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
@@ -27,7 +41,7 @@ body {
 }
 .custom-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: theme('colors.purple.600/0.6') theme('colors.gray.800/0.5');
+  scrollbar-color: theme("colors.purple.600/0.6") theme("colors.gray.800/0.5");
 }
 
 .smooth-scroll {
@@ -36,7 +50,23 @@ body {
 
 /* .animate-fadeInEnhanced is defined in Tailwind config */
 
-html, body {
+.new-chat-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 15px rgba(179, 20, 252, 0.6);
+  animation: magnet 0.4s ease-in-out alternate infinite;
+}
+
+@keyframes magnet {
+  0% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1.1) rotate(-2deg);
+  }
+}
+
+html,
+body {
   height: 100%;
   margin: 0;
   padding: 0;
@@ -44,7 +74,13 @@ html, body {
 }
 
 .animated-gradient {
-  background: linear-gradient(270deg, #1e0a30, #0a0a10, #0a1a20, #0a0a10); /* Darker, more subtle purples/blues/blacks */
+  background: linear-gradient(
+    270deg,
+    #1e0a30,
+    #0a0a10,
+    #0a1a20,
+    #0a0a10
+  ); /* Darker, more subtle purples/blues/blacks */
   background-size: 400% 400%;
   animation: gradientAnimation 40s ease infinite; /* Ensure 'gradientAnimation' matches Tailwind config */
   opacity: 0.85; /* Increased opacity for better visibility */
