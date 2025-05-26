@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Board as TicTacToeBoardType, Player as TicTacToePlayer } from '../../../lib/ticTacToe'; // Adjust path
 
-const OLLAMA_MODEL_FOR_COMMENTARY = 'gemma3:4b-it-qat';
+const OLLAMA_MODEL_FOR_COMMENTARY = 'MyEGO-4B-GPU';
 
 const OLLAMA_API_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 

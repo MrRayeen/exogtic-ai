@@ -1,4 +1,4 @@
-import type { Config } from 'tailwindcss';
+import type { Config } from "tailwindcss";
 
 const config: Config = {
   content: [
@@ -9,31 +9,37 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['var(--font-figtree)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: [
+          "var(--font-figtree)",
+          "ui-sans-serif",
+          "system-ui",
+          "sans-serif",
+        ],
       },
       animation: {
-        fadeInEnhanced: 'fadeInEnhanced 0.5s ease-out forwards', // Updated name
-        pulse: 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        gradientAnimation: 'gradientAnimation 30s ease infinite', // Adjusted speed
+        fadeInEnhanced: "fadeInEnhanced 0.5s ease-out forwards", // Updated name
+        pulse: "pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+        gradientAnimation: "gradientAnimation 30s ease infinite", // Adjusted speed
       },
       keyframes: {
-        fadeInEnhanced: { // Updated keyframes
-          '0%': { opacity: '0', transform: 'translateY(20px) scale(0.95)' },
-          '100%': { opacity: '1', transform: 'translateY(0) scale(1)' },
+        fadeInEnhanced: {
+          // Updated keyframes
+          "0%": { opacity: "0", transform: "translateY(20px) scale(0.95)" },
+          "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
         },
         pulse: {
-          '0%, 100%': { opacity: '1' },
-          '50%': { opacity: '0.6' },
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.6" },
         },
         gradientAnimation: {
-          '0%': { backgroundPosition: '0% 50%' },
-          '50%': { backgroundPosition: '100% 50%' },
-          '100%': { backgroundPosition: '0% 50%' },
+          "0%": { backgroundPosition: "0% 50%" },
+          "50%": { backgroundPosition: "100% 50%" },
+          "100%": { backgroundPosition: "0% 50%" },
         },
       },
     },
   },
-  plugins: [],
+  plugins: [require("@tailwindcss/typography")],
 };
 
 export default config;

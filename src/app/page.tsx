@@ -14,6 +14,9 @@ import {
   getAvailableMoves,
   // HUMAN_PLAYER as DEFAULT_HUMAN_PLAYER, AI_PLAYER as DEFAULT_AI_PLAYER // Constants can be defined in-component if preferred
 } from "../lib/ticTacToe"; // Make sure this path is correct (e.g., src/lib/ticTacToe)
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import CodeBlock from "../components/CodeBlock"; // Adjust path if your components folder is different
 
 // --- 1. Define Data Structures & Constants ---
 interface Message {
@@ -27,6 +30,7 @@ interface Message {
     | "ai_commentary"
     | "game_status"
     | "system_info";
+  images?: string[]; // Array of base64 encoded image strings
 }
 
 interface ChatSession {
@@ -38,7 +42,7 @@ interface ChatSession {
   titleGenerated?: boolean;
 }
 
-const OLLAMA_MODEL_NAME = "gemma3:4b-it-qat"; // User-specified model name
+const OLLAMA_MODEL_NAME = "MyEGO-4B-GPU"; // User-specified model name
 
 // Tic-Tac-Toe Specific Types
 type GameStatus =
@@ -69,6 +73,10 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState<boolean>(false); // For main chat AI response
   const [isTitling, setIsTitling] = useState<{ [chatId: string]: boolean }>({}); // For AI title generation
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true); // Sidebar visibility
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+  const [selectedImagePreview, setSelectedImagePreview] = useState<
+    string | null
+  >(null); // For showing a preview
 
   // Tic-Tac-Toe Game State
   const [ticTacToeState, setTicTacToeState] =
@@ -610,7 +618,9 @@ export default function ChatPage() {
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const trimmedInput = input.trim();
-    if (!trimmedInput || !activeChatId || isLoading) return;
+    if ((!trimmedInput && !selectedImageFile) || !activeChatId || isLoading)
+      return;
+    // Handle special commands
 
     if (trimmedInput.toLowerCase() === "/play tic-tac-toe") {
       initiateTicTacToe();
@@ -631,54 +641,102 @@ export default function ChatPage() {
       setInput("");
       return;
     }
+    let imageBase64Data: string | null = null;
+    if (selectedImageFile) {
+      // Convert the selected file to a base64 string for the API
+      // Note: FileReader is async. For simplicity here, we'll assume selectedImagePreview already holds it
+      // In a more robust implementation, you'd properly await the FileReader result here
+      // or store the base64 in state when the file is selected.
+      // Let's assume selectedImagePreview (which is a data URL: "data:image/jpeg;base64,...") is what we need to process.
+      if (selectedImagePreview) {
+        // Extract just the base64 part from the data URL
+        imageBase64Data = selectedImagePreview.split(",")[1];
+      }
+    }
 
     // Regular chat logic
     const userMessage: Message = {
       id: uuidv4(),
       role: "user",
       content: trimmedInput,
+      ...(imageBase64Data && { images: [imageBase64Data] }),
     };
+
+    // Optimistically update UI with user message AND get the latest messages for the API call
+    let messagesForApi: Message[] = [];
     let sessionForTitlingCheck: ChatSession | undefined;
+
     setChatSessions((prevSessions) => {
       const updatedSessions = prevSessions.map((session) => {
         if (session.id === activeChatId) {
+          const updatedMessages = [...session.messages, userMessage];
           const updatedSession = {
             ...session,
-            messages: [...session.messages, userMessage],
+            messages: updatedMessages,
             lastModifiedAt: new Date().toISOString(),
           };
-          sessionForTitlingCheck = updatedSession;
+          sessionForTitlingCheck = updatedSession; // Capture for titling logic
+          messagesForApi = updatedMessages; // Capture for API call
           return updatedSession;
         }
         return session;
       });
       return updatedSessions;
     });
+
+    // Clear input and selected image
     setInput("");
+    setSelectedImageFile(null);
+    setSelectedImagePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+
     setIsLoading(true);
-    let finalAssistantResponseContent = "";
+    let finalAssistantResponseContent = ""; // To store the full response for potential use (like titling)
+    const assistantMessageId = uuidv4();
+
+    // Add placeholder for assistant's message
+    // Ensure addMessageToActiveChat is defined correctly and updates chatSessions
+    addMessageToActiveChat({
+      id: assistantMessageId,
+      role: "assistant",
+      content: "", // Start with empty content
+    });
+
     try {
+      // Ensure messagesForApi is populated. If setChatSessions hasn't updated state yet for this render,
+      // re-find the active session and construct messagesForApi.
+      // However, by structuring it as above, messagesForApi should be set from the updated session.
+      // A failsafe:
+      if (messagesForApi.length === 0) {
+        const currentActiveChat = chatSessions.find(
+          (s) => s.id === activeChatId
+        );
+        if (currentActiveChat) {
+          // This would be the state *before* the latest user message was added by setChatSessions
+          messagesForApi = [...currentActiveChat.messages, userMessage]; // So, add it manually if needed
+        } else {
+          messagesForApi = [userMessage]; // Should not happen if activeChatId is valid
+        }
+      }
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: trimmedInput,
-          model: OLLAMA_MODEL_NAME,
+          messages: messagesForApi.slice(-10), // Send last 10 messages for context
+          model: OLLAMA_MODEL_NAME, // Ensure MAIN_OLLAMA_MODEL_NAME is defined
         }),
       });
+
       if (!response.ok || !response.body) {
         const errTxt = await response.text();
         throw new Error(`API err: ${response.statusText}. ${errTxt}`);
       }
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantResponseAccumulator = "";
-      const assistantMessageId = uuidv4();
-      addMessageToActiveChat({
-        id: assistantMessageId,
-        role: "assistant",
-        content: "",
-      }); // Placeholder
+
       let buffer = "";
       while (true) {
         const { done, value } = await reader.read();
@@ -691,9 +749,14 @@ export default function ChatPage() {
           if (line) {
             try {
               const parsedChunk = JSON.parse(line);
-              if (parsedChunk.response) {
-                assistantResponseAccumulator += parsedChunk.response;
-                finalAssistantResponseContent = assistantResponseAccumulator;
+              // --- KEY CHANGE: Parsing response from Ollama's /api/chat stream format ---
+              if (
+                parsedChunk.message &&
+                typeof parsedChunk.message.content === "string"
+              ) {
+                assistantResponseAccumulator += parsedChunk.message.content;
+                finalAssistantResponseContent = assistantResponseAccumulator; // Keep track of full response
+
                 setChatSessions((prev) =>
                   prev.map((s) =>
                     s.id === activeChatId
@@ -713,7 +776,16 @@ export default function ChatPage() {
                   )
                 );
               }
-            } catch (error) {}
+              // The 'done' field in each chunk from /api/chat indicates if that particular part is done.
+              // The outer while loop's 'done' from reader.read() handles the overall stream end.
+              // if (parsedChunk.done) { /* Can act on per-chunk done if needed */ }
+              // --- END OF KEY CHANGE ---
+            } catch (error) {
+              // console.error("Error parsing JSON line from stream:", line, error);
+              // It's possible to receive non-JSON data or incomplete JSON lines sometimes,
+              // especially at the very end of a stream or if there's an issue.
+              // For now, we'll silently ignore parsing errors for individual lines to keep the stream going.
+            }
           }
           boundary = buffer.indexOf("\n");
         }
@@ -723,27 +795,63 @@ export default function ChatPage() {
       const errMsg = `😥 Oops! Smth went wrong: ${
         error instanceof Error ? error.message : String(error)
       }`;
-      finalAssistantResponseContent = errMsg;
-      addMessageToActiveChat({
-        id: uuidv4(),
-        role: "assistant",
-        content: errMsg,
-      });
+      finalAssistantResponseContent = errMsg; // Capture error for potential titling context
+      // Update the placeholder message with the error, or add a new error message
+      setChatSessions((prev) =>
+        prev.map((s) =>
+          s.id === activeChatId
+            ? {
+                ...s,
+                messages: s.messages.map((msg) =>
+                  msg.id === assistantMessageId
+                    ? { ...msg, content: errMsg } // Update placeholder
+                    : msg
+                ),
+              }
+            : s
+        )
+      );
     } finally {
       setIsLoading(false);
-      if (inputRef.current) inputRef.current.focus();
-      if (sessionForTitlingCheck && activeChatId && !ticTacToeState) {
-        const currentChat = chatSessions.find((s) => s.id === activeChatId);
+      // DIAGNOSTIC: Temporarily comment out auto-focus to test mobile input issue
+      // if (inputRef.current) inputRef.current.focus();
+
+      // Title Generation Logic (check sessionForTitlingCheck or re-find session)
+      const finalCurrentChat = chatSessions.find((s) => s.id === activeChatId); // Get latest state
+      if (finalCurrentChat && activeChatId && !ticTacToeState) {
         if (
-          currentChat &&
-          !currentChat.titleGenerated &&
-          currentChat.title.startsWith("New Chat ")
+          !finalCurrentChat.titleGenerated &&
+          finalCurrentChat.title.startsWith("New Chat") // Or your default new chat title prefix
         ) {
-          const userMessagesInChat = currentChat.messages.filter(
+          const userMessagesInChat = finalCurrentChat.messages.filter(
             (m) => m.role === "user"
           );
-          if (userMessagesInChat.length === 2) {
-            generateAndSetChatTitle(activeChatId, currentChat.messages);
+          // Trigger title generation after the first full exchange (User1, AI1, User2, AI2)
+          // which means 2 user messages and typically 2 AI messages (total 4 messages, or when user message count is 2)
+          // The AI's response to the 2nd user message is finalAssistantResponseContent
+          if (
+            userMessagesInChat.length === 2 &&
+            finalAssistantResponseContent
+          ) {
+            // Ensure you have the latest messages including the AI's full response
+            const messagesForTitle = [...finalCurrentChat.messages];
+            // If the last message isn't the AI's full response, update it or add it
+            const lastMsg = messagesForTitle[messagesForTitle.length - 1];
+            if (
+              lastMsg &&
+              lastMsg.id === assistantMessageId &&
+              lastMsg.role === "assistant"
+            ) {
+              lastMsg.content = finalAssistantResponseContent; // Ensure it has the complete response
+            } else if (finalAssistantResponseContent) {
+              // This case should ideally not be hit if placeholder logic is correct
+              messagesForTitle.push({
+                id: uuidv4(),
+                role: "assistant",
+                content: finalAssistantResponseContent,
+              });
+            }
+            generateAndSetChatTitle(activeChatId, messagesForTitle);
           }
         }
       }
@@ -921,7 +1029,38 @@ export default function ChatPage() {
     }
     return null; // Should not happen if status is managed correctly
   };
+
+  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files && event.target.files[0]) {
+      const file = event.target.files[0];
+      setSelectedImageFile(file);
+
+      // Create a preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setSelectedImagePreview(reader.result as string); // This is a base64 data URL for preview
+      };
+      reader.readAsDataURL(file); // Reads the file as a data URL (base64)
+    } else {
+      setSelectedImageFile(null);
+      setSelectedImagePreview(null);
+    }
+  };
+
+  // Helper to trigger the hidden file input
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const triggerImageUpload = () => {
+    fileInputRef.current?.click();
+  };
+
+  // Helper to remove selected image
+  const removeSelectedImage = () => {
+    setSelectedImageFile(null);
+    setSelectedImagePreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = ""; // Clear the file input
+  };
   // --- Main Return JSX ---
+  // --- Main Return JSX with ReactMarkdown integration ---
   return (
     <div className="flex h-screen text-slate-200 font-sans relative overflow-hidden">
       <div className="absolute inset-0 z-0 animated-gradient"></div>
@@ -929,7 +1068,7 @@ export default function ChatPage() {
       {!ticTacToeState && (
         <button
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="md:hidden fixed top-4 left-4 z-30 p-2 bg-gray-800/80 backdrop-blur-md rounded-md text-slate-200"
+          className="md:hidden fixed top-2 sm:top-4 left-2 sm:left-4 z-30 p-2 bg-gray-800/80 backdrop-blur-md rounded-md text-slate-200"
           aria-label="Toggle sidebar"
         >
           <svg
@@ -964,7 +1103,7 @@ export default function ChatPage() {
                 if (typeof window !== "undefined" && window.innerWidth < 768)
                   setIsSidebarOpen(false);
               }}
-              className="w-full mb-4 p-3 bg-purple-600 hover:bg-purple-700 rounded-xl text-white font-semibold text-sm shadow-md transition-all active:scale-95 hover:shadow-lg hover:shadow-purple-500/40 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 focus:ring-offset-gray-900 flex items-center justify-center space-x-2"
+              className="flex-shrink-0 w-full mb-3 p-2 sm:p-3 bg-purple-600 hover:bg-purple-700 rounded-xl text-white font-semibold text-sm shadow-md transition-all active:scale-95 hover:shadow-lg hover:shadow-purple-500/40 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 focus:ring-offset-gray-900 flex items-center justify-center space-x-2"
             >
               {" "}
               <svg
@@ -983,27 +1122,28 @@ export default function ChatPage() {
               </svg>{" "}
               <span>New Chat</span>{" "}
             </button>
-            <div className="flex-grow overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+            <div className="flex-grow overflow-y-auto space-y-1.5 sm:space-y-2 pr-0.5 sm:pr-1 custom-scrollbar">
               {sortedChatSessions.map((session) => (
                 <div
                   key={session.id}
                   onClick={() => handleSelectChat(session.id)}
-                  className={`group p-3 rounded-xl cursor-pointer transition-all duration-200 ease-in-out transform hover:scale-[1.02] ${
+                  className={`group p-2 sm:p-3 rounded-xl cursor-pointer transition-all duration-200 ease-in-out transform hover:scale-[1.02] ${
                     activeChatId === session.id
                       ? "bg-purple-700/80 ring-2 ring-purple-500/70 scale-[1.02] shadow-lg shadow-purple-500/30"
                       : "bg-gray-800/70 hover:bg-gray-750/90"
                   }`}
                 >
                   <div className="flex justify-between items-center">
+                    {" "}
                     <span
-                      className={`text-sm font-medium truncate text-slate-100 group-hover:text-white ${
+                      className={`text-xs sm:text-sm font-medium truncate text-slate-100 group-hover:text-white ${
                         isTitling[session.id] ? "italic text-gray-400" : ""
                       }`}
                     >
                       {isTitling[session.id]
                         ? "Generating title..."
                         : session.title}
-                    </span>
+                    </span>{" "}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1026,8 +1166,8 @@ export default function ChatPage() {
                           d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12.56 0c.342.052.682.107 1.022.166m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
                         />
                       </svg>
-                    </button>
-                  </div>
+                    </button>{" "}
+                  </div>{" "}
                   <p className="text-xs text-gray-400 group-hover:text-gray-300 mt-1">
                     {new Date(session.lastModifiedAt).toLocaleDateString([], {
                       month: "short",
@@ -1046,8 +1186,8 @@ export default function ChatPage() {
           !ticTacToeState ? "md:rounded-l-2xl border-l" : "w-full"
         } border-gray-700/50 overflow-hidden transition-all duration-300 ease-in-out`}
       >
-        <header className="p-4 border-b border-gray-700/50 flex items-center justify-between">
-          <h1 className="text-lg sm:text-xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-red-400 truncate">
+        <header className="p-3 sm:p-4 border-b border-gray-700/50 flex items-center justify-between">
+          <h1 className="text-base sm:text-lg md:text-xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-red-400 truncate">
             {ticTacToeState
               ? "Tic-Tac-Toe Challenge Neon Grid 💥"
               : "Exogtic AI 4B ✨"}
@@ -1055,100 +1195,180 @@ export default function ChatPage() {
         </header>
 
         {ticTacToeState ? (
-          // Game Mode Active: Mobile will be vertical (60% board, 40% chat/input), Desktop side-by-side
-          <div className="flex-grow flex flex-col md:flex-row overflow-hidden"> {/* Parent for game mode */}
-            
-            {/* Game Board Area */}
-            <div className="
-              h-[60vh] md:h-full                              সাপmobile: 60% of viewport height. desktop: full height of row.
-              w-full md:w-2/5 lg:w-1/3                        /* mobile: full width. desktop: proportional width */
-              p-2 md:p-4 
-              border-b md:border-b-0 md:border-r border-purple-500/30 
-              flex items-center justify-center 
-              bg-gray-950/40                                  /* Slightly adjusted bg for board area */
-              custom-scrollbar overflow-y-auto                /* Scroll if board UI somehow overflows */
-            ">
+          // --- GAME MODE UI ---
+          <div className="flex-grow flex flex-col md:flex-row overflow-hidden">
+            <div className="h-[55vh] sm:h-[60vh] md:h-full w-full md:w-2/5 lg:w-1/3 p-1 sm:p-2 md:p-4 border-b md:border-b-0 md:border-r border-purple-500/30 flex items-center justify-center bg-gray-950/40 custom-scrollbar overflow-y-auto">
               <TicTacToeGameUI />
             </div>
-
-            {/* Game Chat/Log Area */}
-            <div className="
-              h-[40vh] md:h-full                             /* mobile: 40% of viewport height. desktop: full height of row. */
-              w-full md:w-3/5 lg:w-2/3                        /* mobile: full width. desktop: proportional width */
-              flex flex-col                                   /* Children (chat list, form) will stack vertically */
-              bg-gray-950/70                                  /* Keep consistent with main chat area bg */
-            ">
-              <div ref={chatContainerRef} className="flex-grow p-4 sm:p-6 space-y-4 overflow-y-auto smooth-scroll custom-scrollbar">
-                {/* Filter to show relevant messages for the game */}
-                {currentMessages.filter(msg => msg.isGameMessage === true || ticTacToeState).map((msg) => {
-                    let bubbleBaseStyle = "max-w-[90%] sm:max-w-[80%] px-4 py-2.5 rounded-2xl shadow-lg";
+            <div className="h-[45vh] sm:h-[40vh] md:h-full w-full md:w-3/5 lg:w-2/3 flex flex-col bg-gray-950/70">
+              <div
+                ref={chatContainerRef}
+                className="flex-grow p-2 sm:p-3 md:p-4 space-y-2 sm:space-y-3 overflow-y-auto smooth-scroll custom-scrollbar"
+              >
+                {/* Messages for Game Log */}
+                {currentMessages
+                  .filter((msg) => msg.isGameMessage === true || ticTacToeState)
+                  .map((msg) => {
+                    let bubbleBaseStyle =
+                      "max-w-[90%] sm:max-w-[80%] px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl shadow-lg";
                     let bubbleRoleStyle = "";
-                    let messageContainerStyle = `flex animate-fadeInEnhanced my-1 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`;
+                    let messageContainerStyle = `flex animate-fadeInEnhanced my-1 ${
+                      msg.role === "user" ? "justify-end" : "justify-start"
+                    }`;
 
-                    if (msg.messageType === 'ai_thinking') {
-                        bubbleRoleStyle = 'bg-transparent text-purple-300 italic shadow-none px-0';
-                        messageContainerStyle = `flex justify-center animate-fadeInEnhanced my-2 text-center w-full`;
-                    } else if (msg.messageType === 'user_action') {
-                        bubbleRoleStyle = 'bg-purple-600/90 text-white rounded-br-none opacity-90';
-                    } else if (msg.messageType === 'system_info') {
-                        bubbleRoleStyle = 'bg-gray-700/80 text-slate-300 italic shadow-none text-xs px-3 py-1';
-                        messageContainerStyle = `flex justify-center animate-fadeInEnhanced my-1 text-center w-full`;
-                    } else if (msg.role === 'user') {
-                        bubbleRoleStyle = 'bg-purple-600 text-white rounded-br-none';
-                    } else { // Assistant's commentary or regular game messages
-                        bubbleRoleStyle = 'bg-gray-800 text-slate-200 rounded-bl-none';
+                    if (msg.messageType === "ai_thinking") {
+                      bubbleRoleStyle =
+                        "bg-transparent text-purple-300 italic shadow-none !px-0"; // No padding for thinking text itself
+                      messageContainerStyle = `flex justify-center animate-fadeInEnhanced my-1.5 text-center w-full`;
+                    } else if (msg.messageType === "user_action") {
+                      bubbleRoleStyle =
+                        "bg-purple-600/90 text-white rounded-br-none opacity-90";
+                    } else if (msg.messageType === "system_info") {
+                      bubbleRoleStyle =
+                        "bg-gray-700/80 text-slate-300 italic shadow-none text-xs px-2 py-1";
+                      messageContainerStyle = `flex justify-center animate-fadeInEnhanced my-1 text-center w-full`;
+                    } else if (msg.role === "user") {
+                      bubbleRoleStyle =
+                        "bg-purple-600 text-white rounded-br-none";
+                    } else {
+                      // Assistant's commentary or regular game messages
+                      bubbleRoleStyle =
+                        "bg-gray-800 text-slate-200 rounded-bl-none";
                     }
+                    const containsFencedCode = msg.content.includes("```");
+
                     return (
-                    <div key={msg.id} className={messageContainerStyle}>
-                        <div className={`${bubbleBaseStyle} ${bubbleRoleStyle}`}>
-                        <p className="text-sm sm:text-base whitespace-pre-wrap break-words">{msg.content}</p>
+                      <div key={msg.id} className={messageContainerStyle}>
+                        <div
+                          className={`${bubbleBaseStyle} ${bubbleRoleStyle} ${
+                            containsFencedCode ? "p-0" : ""
+                          }`}
+                        >
+                          {msg.messageType === "ai_thinking" ? (
+                            // For simple "ai_thinking" messages, direct rendering is fine
+                            // And we apply padding here since the bubble itself might have p-0 if containsFencedCode was true (though unlikely for thinking messages)
+                            <p className="text-purple-300 italic text-xs sm:text-sm whitespace-pre-wrap break-words px-3 py-1.5 sm:px-4 sm:py-2">
+                              {msg.content}
+                            </p>
+                          ) : (
+                            // Wrap ReactMarkdown in a div that gets the prose classes
+                            <div
+                              className={`prose prose-xs sm:prose-sm prose-invert max-w-none break-words 
+                               prose-p:my-0.5 prose-ul:my-0.5 prose-ol:my-0.5 
+                               prose-headings:my-1 
+                               prose-pre:!m-0 prose-pre:!p-0 prose-pre:!bg-transparent 
+                               prose-code:text-xs prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:bg-gray-700/70 prose-code:text-purple-300
+                               ${containsFencedCode ? "" : "p-3 sm:p-0"}`}
+                            >
+                              {/* Add padding back if NOT a fenced code block message, 
+                                   because bubble itself might have p-0 due to containsFencedCode.
+                                   Or better, always have padding on the bubble, and let CodeBlock fit in.
+                                   The previous line on bubble: ${containsFencedCode ? 'p-0' : ''}
+                                   Let's revert that for a moment and rely on prose-pre:!p-0 for code block.
+                                   The bubble should always have its base padding defined by bubbleBaseStyle.
+                                   The CodeBlock component has its own `my-2`.
+                               */}
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  code: CodeBlock, // Custom component for fenced blocks and inline code
+                                  // Ensure paragraphs within markdown get correct text color from prose-invert
+                                  p: ({ node, ...props }) => <p {...props} />,
+                                  // You can add more custom renderers if needed:
+                                  // ul: ({node, ...props}) => <ul className="list-disc list-inside ml-4 my-1" {...props} />,
+                                  // ol: ({node, ...props}) => <ol className="list-decimal list-inside ml-4 my-1" {...props} />,
+                                  // strong: ({node, ...props}) => <strong className="font-bold" {...props} />,
+                                }}
+                              >
+                                {msg.content}
+                              </ReactMarkdown>
+                            </div>
+                          )}
                         </div>
-                    </div>
+                      </div>
                     );
-                })}
+                  })}
               </div>
-              <form onSubmit={handleSubmit} className="flex space-x-3 p-3 sm:p-4 border-t border-gray-700/50 bg-gray-950/50">
-                <input 
-                  ref={inputRef} 
-                  type="text" 
-                  value={input} 
-                  onChange={(e) => setInput(e.target.value)} 
+              <form
+                onSubmit={handleSubmit}
+                className="flex space-x-3 p-2 sm:p-3 border-t border-gray-700/50 bg-gray-950/50"
+              >
+                {/* ... Input form ... */}
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
                   placeholder={
-                    ticTacToeState && ticTacToeState.status === 'playing' && ticTacToeState.currentPlayer === ticTacToeState.humanSymbol 
-                      ? "Click board or type comment..." 
-                      : ticTacToeState 
-                        ? "Game in progress..." 
-                        : (activeChatId ? "Message your AI... 🤖" : "Select or create a chat to begin")
-                  } 
-                  className="flex-grow p-3 bg-gray-800 border border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:outline-none transition-all duration-150 placeholder-gray-500 text-slate-100 text-sm sm:text-base" 
-                  disabled={isLoading || !activeChatId || (ticTacToeState?.status === 'playing' && ticTacToeState?.currentPlayer === ticTacToeState?.aiSymbol && !isFetchingCommentary)} 
+                    ticTacToeState &&
+                    ticTacToeState.status === "playing" &&
+                    ticTacToeState.currentPlayer === ticTacToeState.humanSymbol
+                      ? "Click board or type comment..."
+                      : ticTacToeState
+                      ? "Game in progress..."
+                      : activeChatId
+                      ? "Message your AI... 🤖"
+                      : "Select or create a chat to begin"
+                  }
+                  className="flex-grow p-2 sm:p-3 bg-gray-800 border border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:outline-none transition-all duration-150 placeholder-gray-500 text-slate-100 text-xs sm:text-sm md:text-base"
+                  disabled={
+                    isLoading ||
+                    !activeChatId ||
+                    (ticTacToeState?.status === "playing" &&
+                      ticTacToeState?.currentPlayer ===
+                        ticTacToeState?.aiSymbol &&
+                      !isFetchingCommentary)
+                  }
                 />
-                <button 
-                  type="submit" 
-                  disabled={isLoading || !activeChatId || (ticTacToeState?.status === 'playing' && ticTacToeState?.currentPlayer === ticTacToeState?.aiSymbol && !isFetchingCommentary) || (input.trim() === "" && !(ticTacToeState && ticTacToeState.status === 'playing' && ticTacToeState.currentPlayer === ticTacToeState.humanSymbol))} 
-                  className="px-5 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800/50 disabled:text-slate-400 disabled:cursor-not-allowed rounded-xl font-semibold shadow-md focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 focus:ring-offset-gray-950 transition-all duration-150 transform active:scale-95 hover:shadow-lg hover:shadow-purple-500/40"
-                > 
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 sm:w-6 sm:h-6 text-white">
+                <button
+                  type="submit"
+                  disabled={
+                    isLoading ||
+                    !activeChatId ||
+                    (ticTacToeState?.status === "playing" &&
+                      ticTacToeState?.currentPlayer ===
+                        ticTacToeState?.aiSymbol &&
+                      !isFetchingCommentary) ||
+                    (input.trim() === "" &&
+                      !(
+                        ticTacToeState &&
+                        ticTacToeState.status === "playing" &&
+                        ticTacToeState.currentPlayer ===
+                          ticTacToeState.humanSymbol
+                      ))
+                  }
+                  className="px-3 sm:px-4 py-2 sm:py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800/50 disabled:text-slate-400 disabled:cursor-not-allowed rounded-xl font-semibold shadow-md focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 focus:ring-offset-gray-950 transition-all duration-150 transform active:scale-95 hover:shadow-lg hover:shadow-purple-500/40"
+                >
+                  {" "}
+                  <svg
+                    xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="w-5 h-5"
+                  >
                     <path d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z" />
-                    <path d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z" transform="translate(3 0)" />
-                  </svg> 
+                    <path
+                      d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z"
+                      transform="translate(3 0)"
+                    />
+                  </svg>{" "}
                 </button>
               </form>
             </div>
           </div>
         ) : (
           <>
-            {" "}
             {/* Regular Chat UI */}
             <div
               ref={chatContainerRef}
-              className="flex-grow p-4 sm:p-6 space-y-4 overflow-y-auto smooth-scroll custom-scrollbar"
+              className="flex-grow p-3 sm:p-4 md:p-6 space-y-3 sm:space-y-4 overflow-y-auto smooth-scroll custom-scrollbar"
             >
+              {/* Placeholder for "No messages" or "Select chat" */}
               {activeChatId && currentMessages.length === 0 && !isLoading && (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500">
                   {" "}
                   <svg
-                    xmlns="http://www.w3.org/2000/svg"
+                    xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)"
                     fill="none"
                     viewBox="0 0 24 24"
                     strokeWidth={1.5}
@@ -1167,7 +1387,7 @@ export default function ChatPage() {
               {!activeChatId && chatSessions.length > 0 && (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500">
                   <svg
-                    xmlns="http://www.w3.org/2000/svg"
+                    xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)"
                     fill="none"
                     viewBox="0 0 24 24"
                     strokeWidth={1.5}
@@ -1183,42 +1403,100 @@ export default function ChatPage() {
                   <p>Select a chat from the sidebar or create a new one.</p>
                 </div>
               )}
+              {/* Messages for Regular Chat */}
               {currentMessages.map((msg) => {
-                // Re-pasting the improved message styling logic here
                 let bubbleBaseStyle =
-                  "max-w-[80%] sm:max-w-[70%] px-4 py-2.5 rounded-2xl shadow-lg";
+                  "max-w-[90%] sm:max-w-[80%] px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl shadow-lg";
                 let bubbleRoleStyle = "";
                 let messageContainerStyle = `flex animate-fadeInEnhanced my-1 ${
                   msg.role === "user" ? "justify-end" : "justify-start"
                 }`;
 
+                // Determine bubble style based on role and messageType (same as before)
                 if (msg.messageType === "ai_thinking") {
+                  bubbleBaseStyle = "max-w-[90%] sm:max-w-[80%] rounded-2xl";
                   bubbleRoleStyle =
-                    "bg-transparent text-purple-300 italic shadow-none px-0";
-                  messageContainerStyle = `flex justify-center animate-fadeInEnhanced my-2 text-center w-full`;
+                    "bg-transparent text-purple-300 italic shadow-none !px-0";
+                  messageContainerStyle = `flex justify-center animate-fadeInEnhanced my-1.5 text-center w-full`;
                 } else if (msg.messageType === "user_action") {
                   bubbleRoleStyle =
-                    "bg-purple-600/90 text-white rounded-br-none opacity-90";
+                    "bg-purple-600/90 text-white rounded-br-none opacity-90 text-xs sm:text-sm";
                 } else if (msg.messageType === "system_info") {
                   bubbleRoleStyle =
-                    "bg-gray-700/80 text-slate-300 italic shadow-none text-xs px-3 py-1";
+                    "bg-gray-700/80 text-slate-300 italic shadow-none text-xs px-2 py-1";
                   messageContainerStyle = `flex justify-center animate-fadeInEnhanced my-1 text-center w-full`;
                 } else if (msg.role === "user") {
-                  bubbleRoleStyle = "bg-purple-600 text-white rounded-br-none";
+                  bubbleRoleStyle = "bg-purple-900 text-white rounded-br-none";
                 } else {
-                  // Assistant's commentary or regular messages
                   bubbleRoleStyle =
                     "bg-gray-800 text-slate-200 rounded-bl-none";
                 }
                 return (
                   <div key={msg.id} className={messageContainerStyle}>
-                    {" "}
                     <div className={`${bubbleBaseStyle} ${bubbleRoleStyle}`}>
                       {" "}
-                      <p className="text-sm sm:text-base whitespace-pre-wrap break-words">
-                        {msg.content}
-                      </p>{" "}
-                    </div>{" "}
+                      {/* Bubble always has its style */}
+                      {msg.messageType === "ai_thinking" ? (
+                        <p className="text-purple-300 italic text-xs sm:text-sm whitespace-pre-wrap break-words px-3 py-1.5 sm:px-4 sm:py-2">
+                          {msg.content}
+                        </p>
+                      ) : (
+                        <div
+                          className={`
+              w-full                        
+              prose                          
+              prose-xs sm:prose-sm          
+              prose-invert                 
+              max-w-none                     
+              break-words                    
+              prose-p:my-1                   
+              prose-ul:my-1 prose-ol:my-1    
+              prose-headings:my-2            
+              prose-pre:!m-0 prose-pre:!p-0 prose-pre:!bg-transparent 
+              prose-code:font-mono prose-code:text-purple-300 prose-code:px-[0.4em] prose-code:py-[0.2em] prose-code:bg-gray-700/50 prose-code:rounded-[0.2em] prose-code:text-xs
+            `}
+                        >
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              // This 'code' renderer will now differentiate inline vs. block
+                              code: ({
+                                node,
+                                className,
+                                children,
+                                ...props
+                              }) => {
+                                // For fenced code blocks, use our custom CodeBlock component
+                                const match = /language-(\w+)/.exec(
+                                  className || ""
+                                );
+                                if (match) {
+                                  return (
+                                    <CodeBlock className={className} {...props}>
+                                      {String(children).replace(/\n$/, "")}
+                                    </CodeBlock>
+                                  );
+                                }
+                                // Fallback for code blocks without a language (rare with GFM)
+                                // Render with basic <pre><code> structure, styled by prose
+                                return (
+                                  <pre
+                                    className={className}
+                                    {...(props as React.HTMLAttributes<HTMLPreElement>)}
+                                  >
+                                    <code>{children}</code>
+                                  </pre>
+                                );
+                              },
+                              // Ensure paragraphs within markdown get correct text color
+                              p: ({ node, ...props }) => <p {...props} />,
+                            }}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -1234,39 +1512,87 @@ export default function ChatPage() {
             </div>
             <form
               onSubmit={handleSubmit}
-              className="flex space-x-3 p-3 sm:p-4 border-t border-gray-700/50 bg-gray-950/50"
+              className="flex space-x-3 p-2 sm:p-3 md:p-4 border-t border-gray-700/50 bg-gray-950/50"
             >
-              <input
-                ref={inputRef}
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={
-                  activeChatId
-                    ? "Message your AI... 🤖"
-                    : "Select or create a chat to begin"
-                }
-                className="flex-grow p-3 bg-gray-800 border border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:outline-none transition-all duration-150 placeholder-gray-500 text-slate-100 text-sm sm:text-base"
-                disabled={isLoading || !activeChatId}
-              />
-              <button
-                type="submit"
-                disabled={isLoading || !input.trim() || !activeChatId}
-                className="px-5 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800/50 disabled:text-slate-400 disabled:cursor-not-allowed rounded-xl font-semibold shadow-md focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 focus:ring-offset-gray-950 transition-all duration-150 transform active:scale-95 hover:shadow-lg hover:shadow-purple-500/40"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  className="w-5 h-5 sm:w-6 sm:h-6 text-white"
-                >
-                  <path d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z" />
-                  <path
-                    d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z"
-                    transform="translate(3 0)"
+              {selectedImagePreview && (
+                <div className="mb-2 p-2 border border-gray-700 rounded-lg relative w-24 h-24">
+                  <img
+                    src={selectedImagePreview}
+                    alt="Selected preview"
+                    className="w-full h-full object-contain rounded"
                   />
-                </svg>
-              </button>
+                  <button
+                    type="button"
+                    onClick={removeSelectedImage}
+                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 w-5 h-5 flex items-center justify-center text-xs"
+                    aria-label="Remove image"
+                  >
+                    &times;
+                  </button>
+                </div>
+              )}
+              {/* ... Input form ... */}
+              <div className="flex items-center space-x-2 sm:space-x-3 w-full">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleImageChange}
+                  className="hidden" // Hide the default input
+                  accept="image/png, image/jpeg, image/webp, image/gif" // Specify acceptable image types
+                />
+                <button
+                  type="button"
+                  onClick={triggerImageUpload}
+                  className="p-2 sm:p-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-slate-300 transition-colors"
+                  aria-label="Attach image"
+                  title="Attach image"
+                >
+                  {/* Simple Paperclip Icon */}
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="w-5 h-5"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M15.621 4.379a3 3 0 0 0-4.242 0l-7 7a3 3 0 0 0 4.241 4.243h.001l.497-.5a.75.75 0 0 1 1.064 1.057l-.498.501-.002.002a4.5 4.5 0 0 1-6.364-6.364l7-7a4.5 4.5 0 0 1 6.368 6.36l-3.455 3.553A2.625 2.625 0 1 1 9.53 9.53l3.45-3.451a.75.75 0 1 1 1.061 1.06l-3.45 3.452a1.125 1.125 0 0 0 1.59 1.591l3.455-3.553a3 3 0 0 0 0-4.242Z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </button>
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder={
+                    activeChatId
+                      ? "Message your AI... 🤖"
+                      : "Select or create a chat to begin"
+                  }
+                  className="flex-grow p-2 sm:p-3 bg-gray-800 border border-gray-700 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:outline-none transition-all duration-150 placeholder-gray-500 text-slate-100 text-xs sm:text-sm md:text-base"
+                  disabled={isLoading || !activeChatId}
+                />
+                <button
+                  type="submit"
+                  disabled={isLoading || !input.trim() || !activeChatId}
+                  className="px-3 sm:px-4 py-2 sm:py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800/50 disabled:text-slate-400 disabled:cursor-not-allowed rounded-xl font-semibold shadow-md focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 focus:ring-offset-gray-950 transition-all duration-150 transform active:scale-95 hover:shadow-lg hover:shadow-purple-500/40"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className="w-5 h-5"
+                  >
+                    <path d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z" />
+                    <path
+                      d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z"
+                      transform="translate(3 0)"
+                    />
+                  </svg>
+                </button>
+              </div>
             </form>
           </>
         )}

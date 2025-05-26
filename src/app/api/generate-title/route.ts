@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // Remember the user mentioned model name: gemma3:4b-it-qat
-const OLLAMA_MODEL_FOR_TITLING = 'gemma3:4b-it-qat';
+const OLLAMA_MODEL_FOR_TITLING = 'MyEGO-4B-GPU';
 
 const OLLAMA_API_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 
