@@ -953,7 +953,7 @@ export default function ChatPage() {
         <div
           className={`relative z-20 flex flex-col bg-gray-900/60 backdrop-blur-lg border-r border-gray-700/50 transition-all duration-300 ease-in-out ${
             isSidebarOpen
-              ? "w-80 sm:w-96 p-4 opacity-100 pointer-events-auto"
+              ? "w-80 sm:w-96 p-2 sm:p-4 opacity-100 pointer-events-auto"
               : "w-0 p-0 opacity-0 pointer-events-none"
           } md:w-80 lg:w-96 md:p-4 md:opacity-100 md:pointer-events-auto`}
         >
