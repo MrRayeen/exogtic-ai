@@ -99,52 +99,76 @@ Remember always, you are EGO. Your core is **lazy efficiency** coupled with prof
 const OLLAMA_API_BASE_URL =
   process.env.OLLAMA_BASE_URL || "http://localhost:11434";
 
-interface ApiChatMessage {
+interface ApiChatMessageFromFrontend {
+  role: string; // 'user' or 'assistant'
+  content: string;
+  images?: string[]; // These are expected to be raw base64 strings from the frontend after stripping data URL prefix
+}
+
+interface ApiChatMessageForOllama {
   role: "system" | "user" | "assistant";
   content: string;
-  // Ollama's /api/chat endpoint can also accept images for multimodal models
-  images?: string[];
+  images?: string[]; // Raw base64 strings
 }
 
 export async function POST(req: NextRequest) {
-  console.log("\n--- [CHAT API v2 with /api/chat] Request received ---");
+  console.log(
+    "\n--- [CHAT API v4 - Optimized Image Context] Request received ---"
+  );
   try {
     const body = await req.json();
-    // The frontend should send the full message history in `body.messages`
-    // and the desired model in `body.model`.
-    // The `body.prompt` (latest user input) is typically the last message in `body.messages`.
     const {
-      messages: chatHistory,
-      model = process.env.OLLAMA_MODEL_NAME || "MyEGO-4B-GPU",
+      messages: chatHistoryFromFrontend,
+      model = process.env.OLLAMA_MODEL_NAME || "gemma3:4b-it-qat",
     } = body;
 
-    if (!chatHistory || chatHistory.length === 0) {
+    if (!chatHistoryFromFrontend || chatHistoryFromFrontend.length === 0) {
       return NextResponse.json(
         { error: "Messages history is required" },
         { status: 400 }
       );
     }
 
-    // Prepare messages for Ollama's /api/chat endpoint
-    // The system prompt becomes the first message.
-    const messagesForOllama: ApiChatMessage[] = [
-      {
-        role: "system",
-        content: AI_PERSONALITY_PROMPT,
-      },
-      // Add the rest of the chat history
-      // Ensure roles are correctly 'user' or 'assistant' as per Ollama's expectation
-      ...chatHistory.map(
-        (msg: { role: string; content: string; images?: string[] }) => ({
-          role: msg.role as "user" | "assistant", // Cast to expected roles
-          content: msg.content,
-          ...(msg.images && { images: msg.images }), // Include images if present (for future multimodal use)
-        })
-      ),
+    const messagesForOllama: ApiChatMessageForOllama[] = [
+      { role: "system", content: AI_PERSONALITY_PROMPT },
     ];
 
-    console.log(`[CHAT API v2] Using model: ${model}`);
-    // console.log("[CHAT API v2] Messages being sent to Ollama /api/chat:", JSON.stringify(messagesForOllama, null, 2)); // Can be very verbose
+    // Optional priming message for the very first user turn
+    if (
+      chatHistoryFromFrontend.length === 1 &&
+      chatHistoryFromFrontend[0].role === "user"
+    ) {
+      messagesForOllama.push({
+        role: "assistant",
+        content:
+          "Alright. State your query. And attempt to make it... less than utterly banal. 🥱",
+      });
+    }
+
+    // Add the user's actual chat history
+    // Only include images for the *very last* message if it's a user message.
+    chatHistoryFromFrontend.forEach(
+      (msg: ApiChatMessageFromFrontend, index: number) => {
+        const isLastMessage = index === chatHistoryFromFrontend.length - 1;
+        messagesForOllama.push({
+          role: msg.role as "user" | "assistant",
+          content: msg.content,
+          // Only include images if this is the last message in the submitted history,
+          // it's from the user, and it actually contains images.
+          images:
+            isLastMessage &&
+            msg.role === "user" &&
+            msg.images &&
+            msg.images.length > 0
+              ? msg.images // Assumes frontend already sent raw base64 strings
+              : undefined,
+        });
+      }
+    );
+
+    console.log(`[CHAT API v4] Using model: ${model}`);
+    // To debug the payload to Ollama:
+    // console.log("[CHAT API v4] Messages being sent to Ollama /api/chat:", JSON.stringify(messagesForOllama, null, 2));
 
     const ollamaPayload = {
       model: model,
@@ -152,28 +176,23 @@ export async function POST(req: NextRequest) {
       stream: true,
     };
 
-    console.log(
-      `[CHAT API v2] Sending to Ollama URL: ${OLLAMA_API_BASE_URL}/api/chat`
-    );
-
     const ollamaResponse = await fetch(`${OLLAMA_API_BASE_URL}/api/chat`, {
-      // <-- Using /api/chat endpoint
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "localtonet-skip-warning": "true", // Keep if needed for your tunnel
+        "localtonet-skip-warning": "true", // Or your current tunnel header if needed
       },
       body: JSON.stringify(ollamaPayload),
     });
 
     console.log(
-      `[CHAT API v2] Ollama response status: ${ollamaResponse.status}`
+      `[CHAT API v4] Ollama response status: ${ollamaResponse.status}`
     );
 
     if (!ollamaResponse.ok) {
       const errorBody = await ollamaResponse.text();
       console.error(
-        "[CHAT API v2] Ollama API error. Status:",
+        "[CHAT API v4] Ollama API error. Status:",
         ollamaResponse.status,
         "Body:",
         errorBody
@@ -187,86 +206,23 @@ export async function POST(req: NextRequest) {
       );
     }
     if (!ollamaResponse.body) {
-      console.error("[CHAT API v2] Ollama response body is null");
+      console.error("[CHAT API v4] Ollama response body is null");
       return NextResponse.json(
         { error: "Ollama response body is null" },
         { status: 500 }
       );
     }
 
-    // When using Ollama's /api/chat with stream:true, the response format for each chunk is:
-    // {"model":"gemma:2b","created_at":"2023-08-04T08:52:19.343201Z","message":{"role":"assistant","content":"Hello"}, "done":false}
-    // We need to adapt the frontend OR reformat the stream here if the frontend expects the old /api/generate format.
-    // For simplicity, let's assume the frontend's current stream parsing logic (expecting `{"response": "chunk", "done": false}`)
-    // might need adjustment, or we can try to reformat here.
-    // Reformatting here is more complex for streaming. It's better if the frontend adapts or if Ollama has a way
-    // to make /api/chat stream like /api/generate.
-    //
-    // **Let's keep the current frontend parsing and transform the stream from /api/chat format to /api/generate format.**
-    const transformStream = new TransformStream({
-      transform(chunk, controller) {
-        const decoder = new TextDecoder();
-        const inputText = decoder.decode(chunk);
-        try {
-          // Each chunk from /api/chat (stream=true) is a JSON object per line
-          inputText.split("\n").forEach((line) => {
-            if (line.trim()) {
-              const parsedLine = JSON.parse(line);
-              if (parsedLine.message && parsedLine.message.content) {
-                const outputChunk = {
-                  response: parsedLine.message.content,
-                  done: parsedLine.done === true, // Pass along the done status
-                  // Include other fields if your frontend uses them from /api/generate format
-                };
-                controller.enqueue(
-                  new TextEncoder().encode(JSON.stringify(outputChunk) + "\n")
-                );
-              } else if (
-                parsedLine.done === true &&
-                (!parsedLine.message || !parsedLine.message.content)
-              ) {
-                // Send a final "done" signal if it's just a done message without content
-                const outputChunk = { response: "", done: true };
-                controller.enqueue(
-                  new TextEncoder().encode(JSON.stringify(outputChunk) + "\n")
-                );
-              }
-            }
-          });
-        } catch (e) {
-          // If a chunk isn't valid JSON or doesn't fit the structure, it might be an error or incomplete.
-          // console.error("Error processing stream chunk from /api/chat:", e, "Chunk:", inputText);
-          // We could just forward it if we're unsure, but that might break frontend.
-          // For now, if it's not the expected structure, we might drop it or send an error marker.
-          // Let's be simple and assume valid JSON lines for now.
-        }
-      },
-    });
-
-    // Return the transformed stream if you need to match the old /api/generate stream format
-    // return new NextResponse(ollamaResponse.body.pipeThrough(transformStream), {
-    //   headers: { 'Content-Type': 'application/x-ndjson' } // Or text/event-stream
-    // });
-
-    // **Simpler approach: Let's assume frontend can handle the new /api/chat stream format.**
-    // If not, the transformStream above is a starting point for reformatting.
-    // The frontend currently expects: `{"response": "word", "done": false}` from our /api/chat Next.js route.
-    // Ollama's /api/chat endpoint streams: `{"message":{"role":"assistant","content":"word"}, "done": false}`
-    // So, the frontend's parsing in handleSubmit needs to adapt to `parsedChunk.message.content`
-    // instead of `parsedChunk.response`. This is a change in `app/page.tsx`.
-
-    // For now, returning the raw stream from Ollama's /api/chat.
-    // The frontend will need to be updated to parse this different stream structure.
     return new NextResponse(ollamaResponse.body, {
       headers: {
-        "Content-Type": "application/x-ndjson", // Ollama /api/chat streams newline-delimited JSON
+        "Content-Type": "application/x-ndjson",
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "no-cache",
       },
     });
   } catch (error: any) {
     console.error(
-      "[CHAT API v2] Fatal error in API route:",
+      "[CHAT API v4] Fatal error in API route:",
       error.message,
       error.stack
     );

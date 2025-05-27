@@ -15,6 +15,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import CodeBlock from "../components/CodeBlock"; // Adjust path if your components folder is different
+import Lottie, { LottieRefCurrentProps } from "lottie-react";
 
 // --- 1. Define Data Structures & Constants ---
 interface Message {
@@ -70,6 +71,13 @@ export default function ChatPage() {
   const [input, setInput] = useState<string>("");
   const [showGameDropdown, setShowGameDropdown] = useState<boolean>(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [isSpeechModeActive, setIsSpeechModeActive] = useState<boolean>(false);
+  const [isAiSpeakingTts, setIsAiSpeakingTts] = useState<boolean>(false); // To control Lottie animation
+  const [lottieAnimationData, setLottieAnimationData] = useState<object | null>(
+    null
+  );
+  const lottieControlRef = useRef<LottieRefCurrentProps | null>(null); // For controlling Lottie animation if needed
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isTitling, setIsTitling] = useState<{ [chatId: string]: boolean }>({});
@@ -266,8 +274,7 @@ Title:`;
       // Simulate API response
       await new Promise((resolve) => setTimeout(resolve, 1000)); // Simulate network delay
       const generatedTitle =
-        `${messagesForTitle[0].content.substring(0, 15)}` ||
-        "Generated Title";
+        `${messagesForTitle[0].content.substring(0, 15)}` || "Generated Title";
 
       setChatSessions((prevSessions) =>
         prevSessions.map((session) =>
@@ -643,115 +650,137 @@ Title:`;
       setIsSidebarOpen(true);
   };
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (
+    e: FormEvent<HTMLFormElement | HTMLTextAreaElement> // Allow HTMLTextAreaElement for direct calls from onKeyDown
+  ) => {
     e.preventDefault();
     const trimmedInput = input.trim();
-    if ((!trimmedInput && !selectedImageFile) || !activeChatId || isLoading)
-      return;
+
+    // Allow sending if there's an image, even if text input is empty (unless in game where text might be for comments)
+    if ((!trimmedInput && !selectedImageFile) || !activeChatId || isLoading) {
+      if (
+        ticTacToeState &&
+        ticTacToeState.status === "playing" &&
+        ticTacToeState.currentPlayer === ticTacToeState.humanSymbol &&
+        trimmedInput
+      ) {
+        // Allow submitting just a comment during TicTacToe if input is not empty
+      } else {
+        return;
+      }
+    }
 
     if (trimmedInput.toLowerCase() === "/play tic-tac-toe") {
       initiateTicTacToe();
       setInput("");
+      setSelectedImageFile(null);
+      setSelectedImagePreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
       return;
     }
+
     if (ticTacToeState && ticTacToeState.status !== "ended") {
-      addMessageToActiveChat({
-        id: uuidv4(),
-        role: "user",
-        content: trimmedInput,
-        isGameMessage: true,
-        messageType: "user_action",
-      });
+      if (trimmedInput) {
+        addMessageToActiveChat({
+          id: uuidv4(),
+          role: "user",
+          content: trimmedInput,
+          isGameMessage: true,
+          messageType: "user_action",
+        });
+      }
       setInput("");
+      // Keep selected image if any for TTT comments? For now, clearing it.
+      setSelectedImageFile(null);
+      setSelectedImagePreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
       return;
     }
-    let imageBase64Data: string | null = null;
-    if (selectedImageFile && selectedImagePreview) {
-      imageBase64Data = selectedImagePreview.split(",")[1];
+
+    // Regular chat logic
+    let imageForMessageUIDisplay: string[] | undefined = undefined;
+    if (selectedImagePreview) {
+      imageForMessageUIDisplay = [selectedImagePreview]; // Full Data URL for UI
     }
 
     const userMessage: Message = {
       id: uuidv4(),
       role: "user",
       content: trimmedInput,
-      ...(imageBase64Data && { images: [imageBase64Data] }), // Send actual base64 data
+      images: selectedImagePreview ? [selectedImagePreview] : undefined, // Store the full data URL
     };
 
-    let messagesForApi: Message[] = [];
-    setChatSessions((prevSessions) => {
-      const updatedSessions = prevSessions.map((session) => {
-        if (session.id === activeChatId) {
-          const updatedMessages = [...session.messages, userMessage];
-          const updatedSession = {
-            ...session,
-            messages: updatedMessages,
-            lastModifiedAt: new Date().toISOString(),
-          };
-          messagesForApi = updatedMessages;
-          return updatedSession;
-        }
-        return session;
-      });
-      return updatedSessions;
-    });
+    // --- Crucial change for preventing double messages and ensuring history ---
+    // 1. Get the current messages *before* adding the new one, to build the history for the API.
+    // 2. Then, update the state with the new message.
 
+    let messagesForApiCall: Message[] = [];
+    const currentActiveChat = chatSessions.find((s) => s.id === activeChatId);
+    if (currentActiveChat) {
+      messagesForApiCall = [...currentActiveChat.messages, userMessage]; // History *including* the new user message
+    } else {
+      messagesForApiCall = [userMessage]; // For a brand new chat where activeChat might not be in chatSessions yet
+    }
+
+    // Optimistically update UI with user message *after* constructing messagesForApiCall
+    addMessageToActiveChat(userMessage);
+
+    // Clear inputs now that userMessage object is created and added to state
     setInput("");
     setSelectedImageFile(null);
     setSelectedImagePreview(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
 
     setIsLoading(true);
     let finalAssistantResponseContent = "";
     const assistantMessageId = uuidv4();
+    let errorOccurredDuringStream = false;
 
+    // Add placeholder for assistant's message
     addMessageToActiveChat({
       id: assistantMessageId,
       role: "assistant",
-      content: "",
+      content: "", // Start with empty content for streaming
     });
 
     try {
-      if (messagesForApi.length === 0) {
-        const currentActiveChat = chatSessions.find(
-          (s) => s.id === activeChatId
-        );
-        messagesForApi = currentActiveChat
-          ? [...currentActiveChat.messages, userMessage]
-          : [userMessage];
-      }
-
-      // Prepare messages for API, ensuring images are correctly formatted if present in the latest user message
-      const messagesForOllama = messagesForApi
-        .map((msg) => {
-          if (msg.id === userMessage.id && msg.images && msg.images[0]) {
-            return {
-              role: msg.role,
-              content: msg.content,
-              images: msg.images, // API expects array of base64 strings
-            };
-          }
-          return { role: msg.role, content: msg.content };
-        })
-        .slice(-10);
+      // Prepare messages for the API, stripping data URL prefix from images
+      const processedMessagesForApi = messagesForApiCall.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+        // Ensure only the base64 part is sent for images to Ollama backend
+        images: msg.images
+          ? msg.images.map((imgDataUrl) =>
+              imgDataUrl.includes(",") ? imgDataUrl.split(",")[1] : imgDataUrl
+            )
+          : undefined,
+      }));
 
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: messagesForOllama, // Use the processed messages
-          model: OLLAMA_MODEL_NAME,
+          messages: processedMessagesForApi.slice(-50), // Send last 50 messages (including latest user one)
+          model: OLLAMA_MODEL_NAME, // Ensure this is defined: const MAIN_OLLAMA_MODEL_NAME = 'your_main_model';
         }),
       });
 
       if (!response.ok || !response.body) {
         const errTxt = await response.text();
-        throw new Error(`API err: ${response.statusText}. ${errTxt}`);
+        errorOccurredDuringStream = true;
+        throw new Error(
+          `API err: ${response.statusText}. ${errTxt || response.status}`
+        );
       }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let assistantResponseAccumulator = "";
       let buffer = "";
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -768,7 +797,7 @@ Title:`;
                 typeof parsedChunk.message.content === "string"
               ) {
                 assistantResponseAccumulator += parsedChunk.message.content;
-                finalAssistantResponseContent = assistantResponseAccumulator;
+                finalAssistantResponseContent = assistantResponseAccumulator; // Keep track of full response
 
                 setChatSessions((prev) =>
                   prev.map((s) =>
@@ -790,7 +819,7 @@ Title:`;
                 );
               }
             } catch (error) {
-              // console.error("Error parsing JSON line from stream:", line, error);
+              /* console.error("Error parsing JSON line from stream:", line, error); */
             }
           }
           boundary = buffer.indexOf("\n");
@@ -802,6 +831,7 @@ Title:`;
         error instanceof Error ? error.message : String(error)
       }`;
       finalAssistantResponseContent = errMsg;
+      errorOccurredDuringStream = true; // Mark that an error happened
       setChatSessions((prev) =>
         prev.map((s) =>
           s.id === activeChatId
@@ -809,7 +839,7 @@ Title:`;
                 ...s,
                 messages: s.messages.map((msg) =>
                   msg.id === assistantMessageId
-                    ? { ...msg, content: errMsg }
+                    ? { ...msg, content: errMsg } // Update placeholder with error
                     : msg
                 ),
               }
@@ -818,36 +848,46 @@ Title:`;
       );
     } finally {
       setIsLoading(false);
+      // if (textareaRef.current) textareaRef.current.focus(); // Auto-focus logic (consider mobile)
+
+      // --- Text-to-Speech call if in Speech Mode ---
+      if (
+        isSpeechModeActive &&
+        finalAssistantResponseContent &&
+        !errorOccurredDuringStream
+      ) {
+        const textToSpeak = finalAssistantResponseContent
+          .replace(/```[\s\S]*?```/g, "(Code block presented)")
+          .replace(/`([^`]+)`/g, "$1")
+          .replace(/(\*\*|__)(.*?)\1/g, "$2") // Bold
+          .replace(/(\*|_)(.*?)\1/g, "$2") // Italics
+          .replace(/#{1,6}\s*(.*)/g, "$1"); // Headings
+        speakText(textToSpeak); // Assuming speakText and isSpeechModeActive are defined
+      }
+
       // Title Generation Logic
-      const finalCurrentChat = chatSessions.find((s) => s.id === activeChatId);
-      if (finalCurrentChat && activeChatId && !ticTacToeState) {
+      // Re-fetch the session from the potentially updated chatSessions state
+      const finalChatSessionForTitling = chatSessions.find(
+        (s) => s.id === activeChatId
+      );
+      if (finalChatSessionForTitling && activeChatId && !ticTacToeState) {
         if (
-          !finalCurrentChat.titleGenerated &&
-          finalCurrentChat.title.startsWith("New Chat")
+          !finalChatSessionForTitling.titleGenerated &&
+          finalChatSessionForTitling.title.startsWith("New Chat")
         ) {
-          const userMessagesInChat = finalCurrentChat.messages.filter(
+          const userMessagesInChat = finalChatSessionForTitling.messages.filter(
             (m) => m.role === "user"
           );
           if (
-            userMessagesInChat.length === 2 && // Or any other condition, e.g., 1 user message
-            finalAssistantResponseContent
+            userMessagesInChat.length === 2 &&
+            finalAssistantResponseContent &&
+            !errorOccurredDuringStream
           ) {
-            const messagesForTitle = [...finalCurrentChat.messages];
-            const lastMsg = messagesForTitle[messagesForTitle.length - 1];
-            if (
-              lastMsg &&
-              lastMsg.id === assistantMessageId &&
-              lastMsg.role === "assistant"
-            ) {
-              lastMsg.content = finalAssistantResponseContent;
-            } else if (finalAssistantResponseContent) {
-              messagesForTitle.push({
-                id: uuidv4(), // Or assistantMessageId if it makes sense
-                role: "assistant",
-                content: finalAssistantResponseContent,
-              });
-            }
-            generateAndSetChatTitle(activeChatId, messagesForTitle);
+            // Use the messages from finalChatSessionForTitling as it's the most current
+            generateAndSetChatTitle(
+              activeChatId,
+              finalChatSessionForTitling.messages
+            );
           }
         }
       }
@@ -1170,6 +1210,84 @@ Title:`;
     }));
   };
 
+  // --- useEffect for loading Lottie data ---
+  useEffect(() => {
+    fetch("/skull-speaking.json") // Your Lottie file path
+      .then((response) => response.json())
+      .then((data) => {
+        setLottieAnimationData(data);
+        // Ensure animation is stopped initially after loading data
+        // and lottieControlRef.current is available
+        setTimeout(() => {
+          if (lottieControlRef.current) {
+            lottieControlRef.current.stop();
+          }
+          setIsAiSpeakingTts(false); // Set initial speaking state to false
+        }, 100); // Timeout ensures ref is bound
+      })
+      .catch((error) =>
+        console.error("Error loading Lottie animation:", error)
+      );
+  }, []);
+
+  // --- TTS Functions with Lottie Control ---
+  const speakText = (text: string) => {
+    if (!("speechSynthesis" in window)) {
+      addSystemMessage(
+        "My apologies, vocal processors are offline in this browser. 😒",
+        "system_info"
+      );
+      return;
+    }
+    if (speechSynthesis.speaking) {
+      speechSynthesis.cancel(); // Stop current speech to start new
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.onstart = () => {
+      setIsAiSpeakingTts(true);
+      lottieControlRef.current?.play(); // Play Lottie animation
+    };
+    utterance.onend = () => {
+      setIsAiSpeakingTts(false);
+      lottieControlRef.current?.stop(); // Stop Lottie and reset to frame 0
+    };
+    utterance.onerror = (event) => {
+      console.error("Speech synthesis error:", event.error);
+      setIsAiSpeakingTts(false);
+      lottieControlRef.current?.stop(); // Stop Lottie on error
+      addSystemMessage(
+        `My vocal modulator... an anomaly: ${event.error}. How droll. 🙄`,
+        "system_info"
+      );
+    };
+    speechSynthesis.speak(utterance);
+  };
+
+  const stopSpeaking = () => {
+    if (speechSynthesis.speaking) {
+      speechSynthesis.cancel(); // This will trigger utterance.onend
+    } else {
+      setIsAiSpeakingTts(false); // Ensure state is correct
+      lottieControlRef.current?.stop(); // Stop Lottie and reset
+    }
+  };
+
+  const toggleSpeechMode = () => {
+    const newMode = !isSpeechModeActive;
+    setIsSpeechModeActive(newMode);
+    if (newMode) {
+      // Entering speech mode
+      setIsAiSpeakingTts(false);
+      setTimeout(() => lottieControlRef.current?.stop(), 0); // Ensure animation is stopped
+      if (typeof window !== "undefined" && window.innerWidth < 768)
+        setIsSidebarOpen(false);
+    } else {
+      // Exiting speech mode
+      stopSpeaking();
+    }
+  };
+
   const groupedSessionsForDisplay = groupSessionsForSidebar(sortedChatSessions);
 
   return (
@@ -1394,6 +1512,40 @@ c-17 3 -35 3 -40 0 -5 -3 -10 -31 -10 -62 l-1 -57 -12 65 -11 64 -64 36 c-35
               </div>
             ))}
           </div>
+          {/* Speech Mode Toggle Button */}
+          <button
+            onClick={toggleSpeechMode}
+            className={`w-full mt-3 mb-2 p-2.5 rounded-lg text-white font-semibold text-sm shadow-md transition-all active:scale-95 flex items-center justify-center space-x-2
+                            ${
+                              isSpeechModeActive
+                                ? "bg-red-600 hover:bg-red-700"
+                                : "bg-teal-600 hover:bg-teal-700"
+                            }`}
+          >
+            {/* Mic or Skull Icon */}
+            {isSpeechModeActive ? (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="w-5 h-5"
+              >
+                <path d="M7 4a3 3 0 0 1 6 0v4a3 3 0 1 1-6 0V4Zm4 10.93A7.001 7.001 0 0 0 17 8a1 1 0 1 0-2 0A5 5 0 0 1 5 8a1 1 0 0 0-2 0 7.001 7.001 0 0 0 6 6.93V17H7a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.07Z" />
+              </svg>
+            ) : (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="w-5 h-5"
+              >
+                <path d="M7 4a3 3 0 0 1 6 0v4a3 3 0 1 1-6 0V4Zm4 10.93A7.001 7.001 0 0 0 17 8a1 1 0 1 0-2 0A5 5 0 0 1 5 8a1 1 0 0 0-2 0 7.001 7.001 0 0 0 6 6.93V17H7a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.07Z" />
+              </svg>
+            )}
+            <span>
+              {isSpeechModeActive ? "Exit Speech Mode" : "Enter Speech Mode"}
+            </span>
+          </button>
         </div>
       )}
       {/* === END OF UPDATED SIDEBAR SECTION === */}
@@ -1404,7 +1556,7 @@ c-17 3 -35 3 -40 0 -5 -3 -10 -31 -10 -62 l-1 -57 -12 65 -11 64 -64 36 c-35
         } border-gray-700/50 overflow-hidden`}
       >
         <header className="p-3 border-b border-gray-700/50 flex items-center flex-shrink-0 space-x-2">
-          {!ticTacToeState && (
+          {!ticTacToeState && !isSpeechModeActive && (
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className="p-1.5 text-slate-300 hover:text-purple-400 rounded-md md:hidden"
@@ -1443,9 +1595,15 @@ c-17 3 -35 3 -40 0 -5 -3 -10 -31 -10 -62 l-1 -57 -12 65 -11 64 -64 36 c-35
               )}
             </button>
           )}
-          {ticTacToeState && <div className="w-8 h-8 md:hidden"></div>}
+          {(ticTacToeState || isSpeechModeActive) && (
+            <div className="w-8 h-8 md:hidden"></div>
+          )}
           <h1 className="flex-grow text-center text-lg md:text-2xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-red-400 truncate">
-            {ticTacToeState ? "Tic-Tac-Toe Neon Grid 💥" : "Exogtic AI 4B ✨"}
+            {ticTacToeState
+              ? "Tic-Tac-Toe Neon Grid 💥"
+              : isSpeechModeActive
+              ? "EGO - Speech Mode 💀"
+              : activeChat?.title || "Exogtic AI 4B ✨"}
           </h1>
           {!ticTacToeState ? (
             <div className="w-8 h-8 md:hidden"></div>
@@ -1454,7 +1612,145 @@ c-17 3 -35 3 -40 0 -5 -3 -10 -31 -10 -62 l-1 -57 -12 65 -11 64 -64 36 c-35
           )}
         </header>
 
-        {ticTacToeState ? (
+        {isSpeechModeActive ? (
+          // --- SPEECH MODE UI ---
+          <div className="flex-grow flex flex-col items-center justify-center p-4 bg-black/50">
+            {lottieAnimationData ? (
+              <Lottie
+                lottieRef={lottieControlRef} // Pass the ref here
+                animationData={lottieAnimationData}
+                loop={true}
+                // autoplay={false} // Ensure it doesn't autoplay initially, control via ref
+                style={{ width: "80%", maxWidth: "400px", height: "auto" }}
+              />
+            ) : (
+              <p className="text-slate-400">Loading EGO's visage...</p>
+            )}
+            <p className="mt-4 text-sm text-slate-500">
+              {isAiSpeakingTts
+                ? "EGO is speaking..."
+                : "EGO is listening... (Use input below)"}
+            </p>
+            <div className="w-full max-w-xl mt-auto px-2 pb-2 pt-1 sm:px-3 sm:pb-3 sm:pt-2">
+              <div className="bg-gray-800/90 backdrop-blur-sm rounded-xl p-2 sm:p-2.5 shadow-xl border border-gray-700/50">
+                {selectedImagePreview && (
+                  <div className="mb-2 p-1.5 border border-gray-600 rounded-lg relative w-20 h-20 sm:w-24 sm:h-24 bg-gray-700/40 mx-auto sm:mx-0">
+                    <img
+                      src={selectedImagePreview}
+                      alt="Selected preview"
+                      className="w-full h-full object-contain rounded"
+                    />
+                    <button
+                      type="button"
+                      onClick={removeSelectedImage}
+                      className="absolute -top-1.5 -right-1.5 bg-red-600 text-white rounded-full p-0 w-5 h-5 flex items-center justify-center text-[0.6rem] leading-none shadow-md hover:bg-red-700 z-10"
+                      aria-label="Remove image"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                )}
+                <form onSubmit={handleSubmit}>
+                  <textarea
+                    ref={textareaRef}
+                    rows={1}
+                    value={input}
+                    onChange={handleInputChange}
+                    onKeyDown={handleTextareaKeyDown}
+                    placeholder={
+                      activeChatId
+                        ? "Message the AI or attach an image..."
+                        : "Select or create a chat"
+                    }
+                    className="flex-grow w-full p-2 sm:p-2.5 bg-gray-700/60 border border-gray-600 rounded-lg focus:ring-1 focus:ring-purple-500 focus:border-purple-500 focus:outline-none transition-all placeholder-gray-400 text-slate-100 text-sm resize-none overflow-y-auto max-h-24 sm:max-h-32 custom-scrollbar"
+                    disabled={
+                      isLoading || !activeChatId || ticTacToeState !== null
+                    }
+                  />
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="flex items-center space-x-2">
+                      {/* Search Button (Dormant) */}
+                      <button
+                        type="button"
+                        className="px-2.5 py-1.5 text-xs sm:text-sm rounded-md bg-gray-700/50 hover:bg-gray-600/50 text-slate-300 transition-colors flex items-center space-x-1 opacity-50 cursor-not-allowed"
+                        title="Search (coming soon)"
+                        disabled
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          className="w-4 h-4"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                        <span>Search</span>
+                      </button>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {/* Attach Image Button */}
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleImageChange}
+                        className="hidden"
+                        accept="image/png, image/jpeg, image/webp, image/gif"
+                      />
+                      <button
+                        type="button"
+                        onClick={triggerImageUpload}
+                        className="p-2 rounded-lg bg-gray-700/50 hover:bg-gray-600/50 text-slate-300 transition-colors"
+                        aria-label="Attach image"
+                        title="Attach image"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          className="w-5 h-5"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            d="M15.621 4.379a3 3 0 0 0-4.242 0l-7 7a3 3 0 0 0 4.241 4.243h.001l.497-.5a.75.75 0 0 1 1.064 1.057l-.498.501-.002.002a4.5 4.5 0 0 1-6.364-6.364l7-7a4.5 4.5 0 0 1 6.368 6.36l-3.455 3.553A2.625 2.625 0 1 1 9.53 9.53l3.45-3.451a.75.75 0 1 1 1.061 1.06l-3.45 3.452a1.125 1.125 0 0 0 1.59 1.591l3.455-3.553a3 3 0 0 0 0-4.242Z"
+                            clipRule="evenodd"
+                          />
+                        </svg>
+                      </button>
+                      {/* Send Button */}
+                      <button
+                        type="submit"
+                        disabled={
+                          isLoading ||
+                          (!input.trim() && !selectedImageFile) ||
+                          !activeChatId ||
+                          ticTacToeState !== null
+                        }
+                        className="p-2 sm:p-2.5 bg-purple-600 hover:bg-purple-700 rounded-lg font-semibold shadow-md focus:outline-none focus:ring-1 focus:ring-purple-400 transition-all active:scale-95 hover:shadow-lg hover:shadow-purple-500/30 flex-shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          className="w-5 h-5 text-white"
+                        >
+                          <path d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z" />
+                          <path
+                            d="M3.105 3.105a1.5 1.5 0 012.122-.001l7.351 7.351a.75.75 0 010 1.061l-7.35 7.35a1.5 1.5 0 01-2.123-2.122L9.39 10.999 3.105 4.716a1.5 1.5 0 01-.001-1.611z"
+                            transform="translate(3 0)"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        ) : ticTacToeState ? (
           <div className="flex-grow flex flex-col md:flex-row overflow-hidden">
             <div className="h-[55vh] sm:h-[60vh] md:h-full w-full md:flex-[0_0_auto] md:w-[22rem] lg:w-[26rem] p-1 pt-2 sm:p-2 md:p-4 border-b md:border-b-0 md:border-r border-purple-500/30 flex items-center justify-center bg-gray-950/30 custom-scrollbar overflow-y-auto">
               <TicTacToeGameUI />
@@ -1590,7 +1886,7 @@ c-17 3 -35 3 -40 0 -5 -3 -10 -31 -10 -62 l-1 -57 -12 65 -11 64 -64 36 c-35
               className="flex-grow p-2 xs:p-2.5 sm:p-3 md:p-4 space-y-1.5 sm:space-y-2 overflow-y-auto smooth-scroll custom-scrollbar"
             >
               {activeChatId && currentMessages.length === 0 && !isLoading && (
-                <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                <div className="flex flex-col text-center items-center justify-center h-full text-gray-500">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     fill="none"
@@ -1650,11 +1946,27 @@ c-17 3 -35 3 -40 0 -5 -3 -10 -31 -10 -62 l-1 -57 -12 65 -11 64 -64 36 c-35
                   <div key={msg.id} className={messageContainerStyle}>
                     <div className={`${bubbleBaseStyle} ${bubbleRoleStyle}`}>
                       {msg.role === "user" && msg.images && msg.images[0] && (
-                        <div className="mb-1.5 mt-0.5 rounded-md overflow-hidden border border-purple-400/30 max-w-[200px] sm:max-w-[250px]">
+                        <div
+                          className="
+    mb-1.5 mt-0.5 rounded-md overflow-hidden 
+    border border-purple-400/30 
+    bg-black/20
+    w-fit max-w-[250px] sm:max-w-[300px] 
+    max-h-[200px] sm:max-h-[250px]      
+    flex items-center justify-center
+  "
+                        >
                           <img
-                            src={`data:image/png;base64,${msg.images[0]}`} // Assuming images are stored as base64 strings
+                            src={msg.images[0]}
                             alt="User attachment"
-                            className="max-w-full h-auto"
+                            className="
+        max-w-full       
+        max-h-[190px] sm:max-h-[240px]
+        h-auto           
+        w-auto           
+        object-contain   
+        rounded-sm
+      "
                           />
                         </div>
                       )}
@@ -1722,7 +2034,7 @@ c-17 3 -35 3 -40 0 -5 -3 -10 -31 -10 -62 l-1 -57 -12 65 -11 64 -64 36 c-35
                     </button>
                   </div>
                 )}
-                <form onSubmit={handleSubmit} className="sticky bottom-0">
+                <form onSubmit={handleSubmit}>
                   <textarea
                     ref={textareaRef}
                     rows={1}
