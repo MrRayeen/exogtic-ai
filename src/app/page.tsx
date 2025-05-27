@@ -1173,7 +1173,7 @@ Title:`;
   const groupedSessionsForDisplay = groupSessionsForSidebar(sortedChatSessions);
 
   return (
-    <div className="flex h-screen text-slate-200 font-sofia relative overflow-hidden antialiased">
+    <div className="flex min-h-screen h-full text-slate-200 font-sofia relative overflow-hidden antialiased px-safe py-safe">
       <div className="absolute inset-0 z-0 animated-gradient"></div>
 
       {/* === UPDATED SIDEBAR SECTION === */}
@@ -1516,7 +1516,7 @@ c-17 3 -35 3 -40 0 -5 -3 -10 -31 -10 -62 l-1 -57 -12 65 -11 64 -64 36 c-35
               <div className="px-2 pb-2 pt-1 sm:px-3 sm:pb-3 sm:pt-2">
                 <form
                   onSubmit={handleSubmit}
-                  className="flex-shrink-0 bg-gray-800/90 backdrop-blur-sm rounded-xl p-1.5 sm:p-2 shadow-xl border border-gray-700/50"
+                  className="flex-shrink-0 sticky bottom-0 bg-gray-800/90 backdrop-blur-sm rounded-xl p-1.5 sm:p-2 shadow-xl border border-gray-700/50"
                 >
                   <div className="flex items-center space-x-1.5 sm:space-x-2">
                     <textarea
@@ -1722,7 +1722,7 @@ c-17 3 -35 3 -40 0 -5 -3 -10 -31 -10 -62 l-1 -57 -12 65 -11 64 -64 36 c-35
                     </button>
                   </div>
                 )}
-                <form onSubmit={handleSubmit}>
+                <form onSubmit={handleSubmit} className="sticky bottom-0">
                   <textarea
                     ref={textareaRef}
                     rows={1}
