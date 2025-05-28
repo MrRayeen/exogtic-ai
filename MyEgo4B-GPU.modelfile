@@ -4,3 +4,6 @@ FROM gemma3:4b-it-qat
 # For a 4B model on 6GB VRAM, you can usually offload all layers.
 # A high number like 99 tells Ollama to use the GPU for all layers it can.
 PARAMETER num_gpu 34
+PARAMETER temperature 1.3
+PARAMETER top_k 69
+PARAMETER top_p 0.97

@@ -41,7 +41,8 @@ interface ChatSession {
   titleGenerated?: boolean;
 }
 
-const OLLAMA_MODEL_NAME = "MyEGO-4B-GPU"; // User-specified model name
+const EGO_MAIN_MODEL = "MyEGO-4B-GPU"; // User-specified model name
+const CODER_MODEL = "qwen2.5-coder:3b-instruct-fp16"; // User-specified model name for coding tasks
 
 // Tic-Tac-Toe Specific Types
 type GameStatus =
@@ -94,9 +95,40 @@ export default function ChatPage() {
     useState<boolean>(false);
 
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  // inputRef was for a general input, textareaRef is now primary for text.
-  // If inputRef is still needed for other purposes, it can be kept.
-  // For focusing, textareaRef will be used for the main text input.
+  // Inside ChatPage component
+  const [isCoderModeActive, setIsCoderModeActive] = useState<boolean>(false);
+  const [showCoderOptions, setShowCoderOptions] = useState<boolean>(false); // If Coder button becomes a dropdown
+  const modelToUse = isCoderModeActive ? CODER_MODEL : EGO_MAIN_MODEL;
+  const modeToSend = isCoderModeActive ? "code" : "chat";
+
+  // Define color themes
+  const normalTheme = {
+    accent: "purple",
+    buttonBg: "bg-purple-600 hover:bg-purple-700",
+    buttonRing: "ring-purple-500 focus:ring-purple-500",
+    textGradient: "from-purple-400 via-pink-400 to-red-400",
+    actionButtonBg: "bg-purple-700 hover:bg-purple-700/60", // Add default for normal theme
+    actionButtonText: "text-purple-200", // Add default for normal theme
+    // ... other theme-specific classes
+  };
+
+  const coderTheme = {
+    accent: "red",
+    buttonBg: "bg-red-700 hover:bg-red-700", // Example: Deep red
+    buttonRing: "ring-red-400 focus:ring-red-400",
+    textGradient: "from-red-500 via-pink-500 to-orange-400", // Example: Red/Orange gradient
+    actionButtonBg: "bg-red-700 hover:bg-red-700/60", // Example: Red for action buttons
+    actionButtonText: "text-red-200", // Example: Light red text for action buttons
+    // ...
+  };
+
+  const currentTheme = isCoderModeActive ? coderTheme : normalTheme;
+
+  const toggleCoderMode = () => {
+    setIsCoderModeActive(!isCoderModeActive);
+    // If you had a game dropdown, ensure it's closed
+    setShowGameDropdown(false);
+  };
 
   // --- 3. useEffect Hooks ---
   useEffect(() => {
@@ -322,7 +354,7 @@ Title:`;
           moveIndex,
           aiSymbol: currentAiSymbol,
           humanSymbol: currentHumanSymbol,
-          model: OLLAMA_MODEL_NAME,
+          model: EGO_MAIN_MODEL, // Use the main model for commentary
         }),
       });
       if (response.ok) {
@@ -538,7 +570,7 @@ Title:`;
           board: currentState.board,
           aiSymbol: currentState.aiSymbol,
           humanSymbol: currentState.humanSymbol,
-          model: OLLAMA_MODEL_NAME,
+          model: EGO_MAIN_MODEL, // Use the main model for AI moves
         }),
       });
       if (response.ok) {
@@ -699,12 +731,6 @@ Title:`;
       return;
     }
 
-    // Regular chat logic
-    let imageForMessageUIDisplay: string[] | undefined = undefined;
-    if (selectedImagePreview) {
-      imageForMessageUIDisplay = [selectedImagePreview]; // Full Data URL for UI
-    }
-
     const userMessage: Message = {
       id: uuidv4(),
       role: "user",
@@ -763,8 +789,9 @@ Title:`;
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: processedMessagesForApi.slice(-50), // Send last 50 messages (including latest user one)
-          model: OLLAMA_MODEL_NAME, // Ensure this is defined: const MAIN_OLLAMA_MODEL_NAME = 'your_main_model';
+          messages: processedMessagesForApi.slice(-30), // Send last 30 messages (including latest user one)
+          model: modelToUse, // Ensure this is defined: const MAIN_OLLAMA_MODEL_NAME = 'your_main_model';
+          mode: modeToSend,
         }),
       });
 
@@ -2046,7 +2073,7 @@ c-17 3 -35 3 -40 0 -5 -3 -10 -31 -10 -62 l-1 -57 -12 65 -11 64 -64 36 c-35
                         ? "Message the AI or attach an image..."
                         : "Select or create a chat"
                     }
-                    className="flex-grow w-full p-2 sm:p-2.5 bg-gray-700/60 border border-gray-600 rounded-lg focus:ring-1 focus:ring-purple-500 focus:border-purple-500 focus:outline-none transition-all placeholder-gray-400 text-slate-100 text-sm resize-none overflow-y-auto max-h-24 sm:max-h-32 custom-scrollbar"
+                    className={`flex-grow w-full p-2 sm:p-2.5 bg-gray-700/60 border border-gray-600 rounded-lg focus:ring-1 ${ isCoderModeActive ? "focus:ring-red-700 focus:border-red-700" : "focus:ring-purple-500 focus:border-purple-500" } focus:outline-none transition-all placeholder-gray-400 text-slate-100 text-sm resize-none overflow-y-auto max-h-24 sm:max-h-32 custom-scrollbar`}
                     disabled={
                       isLoading || !activeChatId || ticTacToeState !== null
                     }
@@ -2074,12 +2101,66 @@ c-17 3 -35 3 -40 0 -5 -3 -10 -31 -10 -62 l-1 -57 -12 65 -11 64 -64 36 c-35
                         </svg>
                         <span>Search</span>
                       </button>
+                      {/* Coder Mode Button */}
+                      <div className="relative flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={toggleCoderMode} // Assuming toggleCoderMode is defined to set `isCoderModeActive`
+                          className={`px-2.5 py-1.5 text-xs sm:text-sm rounded-md 
+                transition-colors flex items-center space-x-1
+                ${
+                  isCoderModeActive
+                    ? currentTheme.actionButtonBg // Uses the red background from coderTheme
+                    : "bg-gray-700/50 hover:bg-red-700/50 text-slate-300" // Default style
+                }
+                ${
+                  isCoderModeActive
+                    ? currentTheme.actionButtonText
+                    : "text-slate-300"
+                }`}
+                        >
+                          {/* New Code Icon SVG */}
+                          <svg
+                            version="1.0"
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="currentColor"
+                            className="w-4 h-4"
+                            viewBox="0 0 512.000000 512.000000"
+                          >
+                            <g
+                              transform="translate(0.000000,512.000000) scale(0.100000,-0.100000)"
+                              stroke="none"
+                            >
+                              <path
+                                d="M2890 4248 c-25 -14 -57 -42 -72 -64 -21 -30 -124 -379 -463 -1564
+-239 -839 -435 -1541 -435 -1561 0 -52 46 -136 91 -166 54 -35 103 -45 168
+-32 44 9 63 20 100 58 l47 46 437 1530 c252 884 437 1547 437 1571 0 58 -44
+139 -93 172 -58 39 -155 43 -217 10z"
+                              />
+                              <path
+                                d="M1210 3617 c-27 -8 -146 -120 -493 -466 -267 -266 -467 -473 -480
+-496 -28 -54 -28 -136 0 -190 13 -23 213 -230 480 -496 391 -389 464 -457 499
+-467 83 -24 149 -8 211 52 57 53 78 121 62 199 -11 51 -19 60 -387 429 l-376
+378 376 378 c365 366 376 378 386 427 36 169 -112 302 -278 252z"
+                              />
+                              <path
+                                d="M3767 3616 c-67 -24 -110 -71 -132 -141 -13 -41 -13 -60 -4 -105 l11
+-55 376 -377 376 -378 -376 -378 -376 -377 -11 -55 c-33 -160 109 -292 267
+-250 43 12 83 48 505 469 274 272 467 472 479 496 14 26 21 59 21 95 0 36 -7
+69 -21 95 -12 24 -205 223 -479 496 -391 389 -464 457 -499 467 -53 15 -89 15
+-137 -2z"
+                              />
+                            </g>
+                          </svg>
+                          <span>Code</span>
+                        </button>
+                      </div>
                       {/* Game Dropdown Button */}
                       <div className="relative flex-shrink-0">
                         <button
                           type="button"
                           onClick={() => setShowGameDropdown(!showGameDropdown)}
-                          className="px-2.5 py-1.5 text-xs sm:text-sm rounded-md bg-gray-700/50 hover:bg-gray-600/50 text-slate-300 transition-colors flex items-center space-x-1"
+                          className="px-2.5 py-1.5 text-xs sm:text-sm rounded-md bg-gray-700/50 hover:bg-green-600/50 text-slate-300 transition-colors flex items-center space-x-1"
                         >
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -2148,7 +2229,7 @@ c-17 3 -35 3 -40 0 -5 -3 -10 -31 -10 -62 l-1 -57 -12 65 -11 64 -64 36 c-35
                           !activeChatId ||
                           ticTacToeState !== null
                         }
-                        className="p-2 sm:p-2.5 bg-purple-600 hover:bg-purple-700 rounded-lg font-semibold shadow-md focus:outline-none focus:ring-1 focus:ring-purple-400 transition-all active:scale-95 hover:shadow-lg hover:shadow-purple-500/30 flex-shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+                        className={`p-2 sm:p-2.5 ${ isCoderModeActive ? currentTheme.actionButtonBg : "bg-purple-600 hover:bg-purple-700" } rounded-lg font-semibold shadow-md focus:outline-none focus:ring-1 focus:ring-purple-400 transition-all active:scale-95 hover:shadow-lg hover:shadow-purple-500/30 flex-shrink-0 disabled:opacity-60 disabled:cursor-not-allowed`}
                       >
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
