@@ -3,7 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Board as TicTacToeBoardType, Player as TicTacToePlayer, getAvailableMoves } from '../../../lib/ticTacToe'; // Adjust path
 
 const OLLAMA_MODEL_FOR_GAME_LOGIC = 'MyEGO-4B-GPU'; // Model for game logic and move generation
-const OLLAMA_API_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+const OLLAMA_BASE_URL = 'https://exogtic-ollama.gulfam-rayeen.com.np';
+
+const OLLAMA_API_BASE_URL = OLLAMA_BASE_URL || 'http://localhost:11434';
 
 
 const GAME_AI_SYSTEM_PROMPT_抜粋 = `You are a highly rational and logical AI. Your intellect is superior.

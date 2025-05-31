@@ -3,8 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Board as TicTacToeBoardType, Player as TicTacToePlayer } from '../../../lib/ticTacToe'; // Adjust path
 
 const OLLAMA_MODEL_FOR_COMMENTARY = 'MyEGO-4B-GPU';
+const OLLAMA_BASE_URL = 'https://exogtic-ollama.gulfam-rayeen.com.np';
 
-const OLLAMA_API_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+const OLLAMA_API_BASE_URL = OLLAMA_BASE_URL || 'http://localhost:11434';
 
 
 const GAME_COMMENTARY_SYSTEM_PROMPT = `You are an AI with a superior intellect, currently involved in a game of Tic-Tac-Toe. 

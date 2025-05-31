@@ -118,6 +118,9 @@ Your goal is to provide expert coding solutions with the clarity and (understate
 When generating code, use Markdown code blocks with the appropriate language identifier.
 `;
 
+const OLLAMA_BASE_URL = 'https://exogtic-ollama.gulfam-rayeen.com.np';
+
+const OLLAMA_API_BASE_URL = OLLAMA_BASE_URL || 'http://localhost:11434';
 
 // --- Interface Definitions ---
 interface ApiChatMessageFromFrontend {
@@ -209,7 +212,7 @@ export async function POST(req: NextRequest) {
       stream: true,
     };
 
-    const ollamaResponse = await fetch("https://exogtic-ollama.gulfam-rayeen.com.np/api/chat", {
+    const ollamaResponse = await fetch(`${OLLAMA_API_BASE_URL}/api/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

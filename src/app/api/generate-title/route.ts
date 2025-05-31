@@ -4,8 +4,9 @@ import { NextRequest, NextResponse } from 'next/server';
 // Remember the user mentioned model name: gemma3:4b-it-qat
 const OLLAMA_MODEL_FOR_TITLING = 'MyEGO-4B-GPU';
 
-const OLLAMA_API_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+const OLLAMA_BASE_URL = 'https://exogtic-ollama.gulfam-rayeen.com.np';
 
+const OLLAMA_API_BASE_URL = OLLAMA_BASE_URL || 'http://localhost:11434';
 
 const TITLE_GENERATION_SYSTEM_PROMPT = `You are an expert at creating concise, relevant titles for conversations.
 Based on the following conversation excerpt, provide a short title (ideally 3-5 words, maximum 7 words) that accurately captures the main topic or theme.
