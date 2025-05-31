@@ -152,8 +152,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Define your actual model names (these could also come from environment variables)
-    const EGO_GEMMA_MODEL =
-      process.env.OLLAMA_MODEL_NAME || "MyEGO-4B-GPU"; // Or your gemma3:4b-it-qat if not using custom
+    const EGO_GEMMA_MODEL = process.env.OLLAMA_MODEL_NAME || "MyEGO-4B-GPU"; // Or your gemma3:4b-it-qat if not using custom
     const QWEN_CODER_MODEL =
       process.env.CODER_OLLAMA_MODEL_NAME || "qwen2.5-coder:3b-instruct-fp16";
 
@@ -216,7 +215,6 @@ export async function POST(req: NextRequest) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "localtonet-skip-warning": "true", // Or your current tunnel header if using one
       },
       body: JSON.stringify(ollamaPayload),
     });
@@ -245,7 +243,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return new NextResponse(ollamaResponse.body, {
+    const stream = new ReadableStream({
+      async start(controller) {
+        const reader = ollamaResponse.body!.getReader();
+        const decoder = new TextDecoder();
+        const encoder = new TextEncoder();
+
+        let lastFlush = Date.now();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          controller.enqueue(encoder.encode(chunk));
+
+          lastFlush = Date.now();
+        }
+
+        controller.close();
+      },
+    });
+
+    return new NextResponse(stream, {
       headers: {
         "Content-Type": "application/x-ndjson",
         "X-Content-Type-Options": "nosniff",

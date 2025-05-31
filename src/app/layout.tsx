@@ -2,6 +2,7 @@
 import type { Metadata } from "next";
 import { Figtree, Audiowide } from "next/font/google"; // Audiowide is already imported
 import "./globals.css";
+import { Analytics } from "@vercel/analytics/next";
 
 // Configure Figtree font (your existing code)
 const figtree = Figtree({
@@ -35,7 +36,10 @@ export default function RootLayout({
       lang="en"
       className={`${figtree.variable} ${audiowide.variable} font-sans antialiased`}
     >
-      <body>{children}</body>
+      <body>
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }
